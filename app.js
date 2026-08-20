@@ -52,14 +52,40 @@ const state = {
   activeQuestionIndex: 0,
   startedAt: null,
   completedCount: 0,
+  isSubmitting: false,
 };
 
-const adjectives = ["quiet", "brisk", "bright", "steady", "calm", "rapid", "mellow"];
-const animals = ["otter", "lynx", "sparrow", "badger", "heron", "fox", "seal"];
+const adjectives = [
+  "quiet",
+  "brisk",
+  "bright",
+  "steady",
+  "calm",
+  "rapid",
+  "mellow",
+  "gentle",
+  "clear",
+  "nimble",
+  "bold",
+  "kind",
+];
+const animals = [
+  "otter",
+  "lynx",
+  "sparrow",
+  "badger",
+  "heron",
+  "fox",
+  "seal",
+  "falcon",
+  "wolf",
+  "beaver",
+  "rabbit",
+  "dolphin",
+];
 
 /* Firebase initialization: configure and create Firestore client for static GitHub Pages usage. */
-const firebaseApp = initializeApp(APP_CONFIG.firebase);
-const db = getFirestore(firebaseApp);
+let db = null;
 
 function showStatus(message, isError = false) {
   dom.statusBanner.textContent = message;
@@ -75,7 +101,7 @@ function hasPlaceholderFirebaseConfig() {
 function generateNickname() {
   const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
   const animal = animals[Math.floor(Math.random() * animals.length)];
-  const number = Math.floor(100 + Math.random() * 900);
+  const number = Math.floor(1000 + Math.random() * 9000);
   return `${adjective}-${animal}-${number}`;
 }
 
@@ -167,12 +193,13 @@ async function getOrCreateAssignment() {
   }
 
   const seenDatapoints = await getAnnotatorSeenDatapointIds();
+  const completedCountsByDatapoint = await getCompletedAssignmentCountsMap();
   const datapointsSnapshot = await getDocs(collection(db, "datapoints"));
   const candidates = [];
 
   for (const datapointDoc of datapointsSnapshot.docs) {
     if (seenDatapoints.has(datapointDoc.id)) continue;
-    const completedCount = await getCompletedAssignmentCount(datapointDoc.id);
+    const completedCount = completedCountsByDatapoint.get(datapointDoc.id) || 0;
     candidates.push({
       datapointId: datapointDoc.id,
       completedCount,
@@ -192,7 +219,9 @@ async function getOrCreateAssignment() {
   const pool = underTarget.length ? underTarget : prioritized;
   const selected = pool[Math.floor(Math.random() * pool.length)];
 
+  // TODO: replace this block with a Firestore transaction when moving to production multi-user scale.
   // Keep assignment creation isolated so this can be upgraded to a Firestore transaction safely.
+  // Without a transaction, simultaneous clients can over-assign the same datapoint.
   const assignmentRef = await addDoc(collection(db, "assignments"), {
     annotatorId: state.annotator.annotatorId,
     datapointId: selected.datapointId,
@@ -230,22 +259,27 @@ async function getAnnotatorSeenDatapointIds() {
   return seen;
 }
 
-async function getCompletedAssignmentCount(datapointId) {
+async function getCompletedAssignmentCountsMap() {
   const completedSnap = await getDocs(
-    query(
-      collection(db, "assignments"),
-      where("datapointId", "==", datapointId),
-      where("status", "==", "completed")
-    )
+    query(collection(db, "assignments"), where("status", "==", "completed"))
   );
 
-  const annotators = new Set();
+  const perDatapointAnnotators = new Map();
   completedSnap.forEach((docSnap) => {
-    const annotatorId = docSnap.data().annotatorId;
-    if (annotatorId) annotators.add(annotatorId);
+    const { annotatorId, datapointId } = docSnap.data();
+    if (!annotatorId || !datapointId) return;
+
+    if (!perDatapointAnnotators.has(datapointId)) {
+      perDatapointAnnotators.set(datapointId, new Set());
+    }
+    perDatapointAnnotators.get(datapointId).add(annotatorId);
   });
 
-  return annotators.size;
+  const counts = new Map();
+  perDatapointAnnotators.forEach((annotators, datapointId) => {
+    counts.set(datapointId, annotators.size);
+  });
+  return counts;
 }
 
 async function loadDatapoint(datapointId) {
@@ -416,48 +450,53 @@ function hasObjectFailure() {
 
 /* Response collection and annotation submission: store raw boolean responses, times, duration, and assignment linkage. */
 async function submitCurrentAnnotation() {
-  if (!areAllQuestionsAnswered()) return;
+  if (!areAllQuestionsAnswered() || state.isSubmitting) return;
+  state.isSubmitting = true;
 
-  const submittedAt = new Date();
-  const durationMs = submittedAt.getTime() - state.startedAt.getTime();
+  try {
+    const submittedAt = new Date();
+    const durationMs = submittedAt.getTime() - state.startedAt.getTime();
 
-  const objectResponses = state.questions
-    .filter((question) => question.kind === "object")
-    .map((question) => ({
-      object: question.sourceId,
-      response: state.responses[question.key],
-    }));
+    const objectResponses = state.questions
+      .filter((question) => question.kind === "object")
+      .map((question) => ({
+        object: question.sourceId,
+        response: state.responses[question.key],
+      }));
 
-  const conditionResponses = state.questions
-    .filter((question) => question.kind === "condition")
-    .map((question) => ({
-      conditionId: question.sourceId,
-      response: state.responses[question.key],
-    }));
+    const conditionResponses = state.questions
+      .filter((question) => question.kind === "condition")
+      .map((question) => ({
+        conditionId: question.sourceId,
+        response: state.responses[question.key],
+      }));
 
-  const annotationPayload = {
-    annotatorId: state.annotator.annotatorId,
-    datapointId: state.datapoint.id,
-    assignmentId: state.assignment.assignmentId,
-    objectResponses,
-    conditionResponses,
-    startedAt: state.startedAt,
-    submittedAt,
-    durationMs,
-    timestamp: serverTimestamp(),
-    objectFailure: hasObjectFailure(),
-  };
+    const annotationPayload = {
+      annotatorId: state.annotator.annotatorId,
+      datapointId: state.datapoint.id,
+      assignmentId: state.assignment.assignmentId,
+      objectResponses,
+      conditionResponses,
+      startedAt: state.startedAt,
+      submittedAt,
+      durationMs,
+      timestamp: serverTimestamp(),
+      objectFailure: hasObjectFailure(),
+    };
 
-  const annotationRef = await addDoc(collection(db, "annotations"), annotationPayload);
+    const annotationRef = await addDoc(collection(db, "annotations"), annotationPayload);
 
-  await updateDoc(doc(db, "assignments", state.assignment.assignmentId), {
-    status: "completed",
-    completedAt: serverTimestamp(),
-    submittedAnnotationId: annotationRef.id,
-  });
+    await updateDoc(doc(db, "assignments", state.assignment.assignmentId), {
+      status: "completed",
+      completedAt: serverTimestamp(),
+      submittedAnnotationId: annotationRef.id,
+    });
 
-  showStatus("Annotation saved. Loading next datapoint...");
-  await loadNextDatapoint();
+    showStatus("Annotation saved. Loading next datapoint...");
+    await loadNextDatapoint();
+  } finally {
+    state.isSubmitting = false;
+  }
 }
 
 /* Next-datapoint assignment: complete one annotation, then fetch or create the next eligible assignment. */
@@ -482,7 +521,7 @@ async function loadNextDatapoint() {
 
   state.datapoint = await loadDatapoint(state.assignment.datapointId);
   state.questions = buildQuestions(state.datapoint);
-  state.responses = Object.fromEntries(state.questions.map((question) => [question.key, null]));
+  state.responses = {};
   state.activeQuestionIndex = 0;
   state.startedAt = new Date();
 
@@ -496,6 +535,7 @@ function setupKeyboardShortcuts() {
     if (event.target && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) return;
 
     const key = event.key.toLowerCase();
+    if (key === "enter" && event.target === dom.submitBtn) return;
 
     if (key === "1" || key === "y") {
       event.preventDefault();
@@ -521,7 +561,7 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    if (event.key === "Enter" && areAllQuestionsAnswered()) {
+    if (key === "enter" && areAllQuestionsAnswered()) {
       event.preventDefault();
       dom.submitBtn.disabled = true;
       try {
@@ -551,6 +591,8 @@ async function bootstrap() {
   }
 
   try {
+    const firebaseApp = initializeApp(APP_CONFIG.firebase);
+    db = getFirestore(firebaseApp);
     await initializeAnnotator();
     setupKeyboardShortcuts();
     await loadNextDatapoint();
