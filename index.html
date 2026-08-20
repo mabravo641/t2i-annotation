@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NegGenEval Annotation</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="topbar">
+        <h1>NegGenEval Annotation</h1>
+        <p id="progressText" class="progress">Annotation 0 of 20</p>
+      </header>
+
+      <section id="statusBanner" class="status" aria-live="polite"></section>
+
+      <section id="promptSection" class="card">
+        <h2>Prompt</h2>
+        <p id="promptText" class="prompt-text"></p>
+      </section>
+
+      <section id="imageSection" class="card">
+        <img id="generatedImage" alt="Generated image for annotation" />
+      </section>
+
+      <section id="objectsSection" class="card">
+        <h2>Required objects</h2>
+        <div id="objectQuestions" class="questions"></div>
+      </section>
+
+      <section id="conditionsSection" class="card">
+        <h2>Conditions</h2>
+        <div id="conditionQuestions" class="questions"></div>
+      </section>
+
+      <footer class="footer-actions">
+        <button id="submitBtn" disabled>Submit &amp; Next (Enter)</button>
+      </footer>
+    </main>
+
+    <dialog id="annotatorDialog">
+      <form id="annotatorForm" method="dialog">
+        <h2>Welcome</h2>
+        <p>Enter your email to begin annotation.</p>
+        <label for="emailInput">Email</label>
+        <input id="emailInput" type="email" required autocomplete="email" />
+        <menu>
+          <button value="cancel" type="button" id="cancelAnnotatorBtn">Cancel</button>
+          <button value="default" type="submit">Start</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
