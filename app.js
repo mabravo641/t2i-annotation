@@ -15,12 +15,12 @@ import {
 
 const DEFAULT_APP_CONFIG = {
   firebase: {
-    apiKey: "REPLACE_WITH_FIREBASE_API_KEY",
-    authDomain: "REPLACE_WITH_FIREBASE_AUTH_DOMAIN",
-    projectId: "REPLACE_WITH_FIREBASE_PROJECT_ID",
-    storageBucket: "REPLACE_WITH_FIREBASE_STORAGE_BUCKET",
-    messagingSenderId: "REPLACE_WITH_FIREBASE_MESSAGING_SENDER_ID",
-    appId: "REPLACE_WITH_FIREBASE_APP_ID",
+    apiKey: "AIzaSyD3Ut1Z5eoDXBwGK8yqdqP3zRd7TGP5Wvc",
+    authDomain: "neg-gen.firebaseapp.com",
+    projectId: "neg-gen",
+    storageBucket: "neg-gen.firebasestorage.app",
+    messagingSenderId: "1057258679978",
+    appId: "1:1057258679978:web:29acc54cdc3ec269ee2ad3",
   },
   targetAnnotationsPerDatapoint: 3,
   progressTarget: 20,
