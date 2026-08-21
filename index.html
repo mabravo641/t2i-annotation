@@ -10,7 +10,13 @@
     <main class="container">
       <header class="topbar">
         <h1>NegGenEval Annotation</h1>
-        <p id="progressText" class="progress">Annotation 0 of 20</p>
+        <div class="annotator-summary">
+          <p id="annotatorName" class="annotator-name"></p>
+          <p id="progressText" class="progress">Annotation 0 of 20</p>
+          <button id="changeAnnotatorBtn" class="change-email-btn" type="button">
+            Change email
+          </button>
+        </div>
       </header>
 
       <section id="statusBanner" class="status" aria-live="polite"></section>
@@ -20,18 +26,22 @@
         <p id="promptText" class="prompt-text"></p>
       </section>
 
-      <section id="imageSection" class="card">
-        <img id="generatedImage" alt="Generated image for annotation" />
-      </section>
+      <section class="annotation-layout">
+        <section id="imageSection" class="card image-card">
+          <img id="generatedImage" alt="Generated image for annotation" />
+        </section>
 
-      <section id="objectsSection" class="card">
-        <h2>Required objects</h2>
-        <div id="objectQuestions" class="questions"></div>
-      </section>
+        <aside class="card question-panel">
+          <section id="objectsSection" class="question-group">
+            <h2>Required objects</h2>
+            <div id="objectQuestions" class="questions"></div>
+          </section>
 
-      <section id="conditionsSection" class="card">
-        <h2>Conditions</h2>
-        <div id="conditionQuestions" class="questions"></div>
+          <section id="conditionsSection" class="question-group">
+            <h2>Conditions</h2>
+            <div id="conditionQuestions" class="questions"></div>
+          </section>
+        </aside>
       </section>
 
       <footer class="footer-actions">

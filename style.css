@@ -26,6 +26,43 @@ body {
   gap: 1rem;
 }
 
+.annotator-summary {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: end;
+  text-align: right;
+}
+
+.annotator-name,
+.progress {
+  margin: 0;
+}
+
+.annotator-name {
+  color: #475467;
+  font-size: 0.9rem;
+}
+
+.change-email-btn {
+  justify-self: end;
+  border: 1px solid #98a2b3;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  background: #fff;
+  color: #344054;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.change-email-btn:hover {
+  border-color: #667085;
+}
+
+.change-email-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .progress {
   font-weight: 700;
 }
@@ -49,6 +86,33 @@ body {
   font-size: 1.1rem;
   font-weight: 700;
   line-height: 1.4;
+}
+
+.annotation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.image-card,
+.question-panel {
+  margin-bottom: 1rem;
+}
+
+.image-card {
+  position: sticky;
+  top: 1rem;
+}
+
+.question-panel {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.question-group + .question-group {
+  border-top: 1px solid #eaecf0;
+  padding-top: 1.25rem;
 }
 
 #generatedImage {
@@ -79,6 +143,17 @@ body {
 .question-text {
   margin: 0 0 0.6rem;
   font-size: 1.02rem;
+}
+
+.hl-object,
+.hl-key {
+  font-weight: 700;
+}
+
+.hl-not {
+  font-weight: 700;
+  font-style: italic;
+  color: #1d4ed8;
 }
 
 .answer-row {
@@ -129,6 +204,20 @@ body {
 #submitBtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .annotation-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .image-card {
+    position: static;
+  }
 }
 
 dialog {

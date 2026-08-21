@@ -32,8 +32,11 @@ const LOCAL_STORAGE_ANNOTATOR_KEY = "neggeneval_annotator_id";
 const dom = {
   statusBanner: document.getElementById("statusBanner"),
   progressText: document.getElementById("progressText"),
+  annotatorName: document.getElementById("annotatorName"),
+  changeAnnotatorBtn: document.getElementById("changeAnnotatorBtn"),
   promptText: document.getElementById("promptText"),
   generatedImage: document.getElementById("generatedImage"),
+  objectsSection: document.getElementById("objectsSection"),
   objectQuestions: document.getElementById("objectQuestions"),
   conditionQuestions: document.getElementById("conditionQuestions"),
   submitBtn: document.getElementById("submitBtn"),
@@ -143,7 +146,7 @@ async function initializeAnnotator() {
   state.annotator = { ...annotator, createdAt: new Date(), updatedAt: new Date() };
 }
 
-function promptForEmail() {
+function promptForEmail(initialEmail = "") {
   return new Promise((resolve) => {
     const form = dom.annotatorForm;
 
@@ -174,8 +177,35 @@ function promptForEmail() {
     form.addEventListener("submit", onSubmit);
     dom.cancelAnnotatorBtn.addEventListener("click", onCancel);
     dom.annotatorDialog.addEventListener("cancel", onCancel);
+    dom.emailInput.value = initialEmail;
     dom.annotatorDialog.showModal();
     dom.emailInput.focus();
+  });
+}
+
+async function changeAnnotatorEmail() {
+  const email = await promptForEmail(state.annotator.email || "");
+  if (!email || email === state.annotator.email) return;
+
+  await updateDoc(doc(db, "annotators", state.annotator.annotatorId), {
+    email,
+    updatedAt: serverTimestamp(),
+  });
+
+  state.annotator.email = email;
+  showStatus("Email updated.");
+}
+
+function setupAnnotatorControls() {
+  dom.changeAnnotatorBtn.addEventListener("click", async () => {
+    dom.changeAnnotatorBtn.disabled = true;
+    try {
+      await changeAnnotatorEmail();
+    } catch (error) {
+      showStatus(error.message || "Email update failed.", true);
+    } finally {
+      dom.changeAnnotatorBtn.disabled = false;
+    }
   });
 }
 
@@ -305,16 +335,70 @@ async function refreshCompletedCount() {
   state.completedCount = completedSnap.size;
 }
 
+/* Question-text rendering: highlight the object(s) and the relation/attribute/
+   property word(s) in bold, and "not" in bold italic blue, per condition. Falls
+   back to the plain stored question text for older datapoints that predate the
+   structured subject/predicate/target/polarity fields. */
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function highlightObject(value) {
+  return `<strong class="hl-object">${escapeHtml(value)}</strong>`;
+}
+
+function highlightKey(value) {
+  return `<strong class="hl-key">${escapeHtml(value)}</strong>`;
+}
+
+function notSpan() {
+  return `<em class="hl-not">not</em>`;
+}
+
+function buildObjectQuestionHtml(objectName) {
+  return `Is there exactly one ${highlightObject(objectName)} in the image?`;
+}
+
+function buildConditionQuestionHtml(condition) {
+  const notPart = condition.polarity === "neg" ? `${notSpan()} ` : "";
+
+  if (condition.type === "attribute" && condition.subject && condition.predicate) {
+    return `Is the ${highlightObject(condition.subject)} ${notPart}${highlightKey(condition.predicate)}?`;
+  }
+
+  if (condition.type === "relation" && condition.subject && condition.predicate && condition.target) {
+    return `Is the ${highlightObject(condition.subject)} ${notPart}${highlightKey(condition.predicate)} the ${highlightObject(condition.target)}?`;
+  }
+
+  if (condition.type === "object" && condition.subject) {
+    return buildObjectQuestionHtml(condition.subject);
+  }
+
+  return escapeHtml(condition.question || "");
+}
+
 function buildQuestions(datapoint) {
   const questions = [];
+  const conditionObjectIds = new Set(
+    (datapoint.conditions || [])
+      .map((condition) => String(condition.id || ""))
+      .filter((conditionId) => conditionId.startsWith("obj_"))
+      .map((conditionId) => conditionId.slice(4))
+  );
 
   (datapoint.objects || []).forEach((objectName, index) => {
     const normalizedObject = String(objectName).trim();
+    if (conditionObjectIds.has(normalizedObject)) return;
     questions.push({
       key: `object:${index}:${normalizedObject}`,
       kind: "object",
       sourceId: normalizedObject,
-      text: `Is exactly one ${normalizedObject} present in the image?`,
+      html: buildObjectQuestionHtml(normalizedObject),
     });
   });
 
@@ -323,7 +407,7 @@ function buildQuestions(datapoint) {
       key: `condition:${condition.id || index}`,
       kind: "condition",
       sourceId: condition.id || String(index),
-      text: condition.question,
+      html: buildConditionQuestionHtml(condition),
     });
   });
 
@@ -332,12 +416,16 @@ function buildQuestions(datapoint) {
 
 /* Dynamic question rendering: generate all object and condition questions from datapoint data only. */
 function renderDatapoint() {
+  dom.annotatorName.textContent = `Annotating as ${state.annotator.nickname}`;
   dom.promptText.textContent = state.datapoint.prompt || "";
   dom.generatedImage.src = state.datapoint.imageUrl || "";
   dom.generatedImage.alt = `Generated image for datapoint ${state.datapoint.id}`;
 
   dom.objectQuestions.innerHTML = "";
   dom.conditionQuestions.innerHTML = "";
+  dom.objectsSection.hidden = !state.questions.some(
+    (question) => question.kind === "object"
+  );
 
   state.questions.forEach((question, questionIndex) => {
     const card = document.createElement("article");
@@ -346,7 +434,7 @@ function renderDatapoint() {
 
     const title = document.createElement("p");
     title.className = "question-text";
-    title.textContent = question.text;
+    title.innerHTML = question.html;
 
     const answerRow = document.createElement("div");
     answerRow.className = "answer-row";
@@ -594,6 +682,7 @@ async function bootstrap() {
     const firebaseApp = initializeApp(APP_CONFIG.firebase);
     db = getFirestore(firebaseApp);
     await initializeAnnotator();
+    setupAnnotatorControls();
     setupKeyboardShortcuts();
     await loadNextDatapoint();
   } catch (error) {
