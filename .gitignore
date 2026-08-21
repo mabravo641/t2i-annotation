@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Never commit Firebase Admin SDK credentials, even if copied here by mistake.
+*firebase-adminsdk*.json
+
+# Downloaded annotation exports contain annotator emails; keep them local.
+src/annotations/
+src/manifests/
+src/graveyard/
