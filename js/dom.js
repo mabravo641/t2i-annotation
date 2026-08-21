@@ -1,0 +1,16 @@
+export const dom = {
+  statusBanner: document.getElementById("statusBanner"),
+  progressText: document.getElementById("progressText"),
+  annotatorName: document.getElementById("annotatorName"),
+  changeAnnotatorBtn: document.getElementById("changeAnnotatorBtn"),
+  promptText: document.getElementById("promptText"),
+  generatedImage: document.getElementById("generatedImage"),
+  objectsSection: document.getElementById("objectsSection"),
+  objectQuestions: document.getElementById("objectQuestions"),
+  conditionQuestions: document.getElementById("conditionQuestions"),
+  submitBtn: document.getElementById("submitBtn"),
+  annotatorDialog: document.getElementById("annotatorDialog"),
+  annotatorForm: document.getElementById("annotatorForm"),
+  emailInput: document.getElementById("emailInput"),
+  cancelAnnotatorBtn: document.getElementById("cancelAnnotatorBtn"),
+};
