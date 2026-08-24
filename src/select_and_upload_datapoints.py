@@ -45,12 +45,10 @@ Restrict to specific models/categories:
 from __future__ import annotations
 
 import argparse
-import csv
 import itertools
 import json
 import random
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
 from pathlib import Path
 
 import firebase_admin
@@ -67,7 +65,6 @@ SERVICE_ACCOUNT_FILE = (
 )
 MANIFEST_DIR = Path(__file__).resolve().parent / "manifests"
 MANIFEST_PATH = MANIFEST_DIR / "upload_manifest.jsonl"
-LEGACY_MANIFEST_PATH = MANIFEST_DIR / "upload_manifest.csv"
 
 ALL_CATEGORIES = [
     "neg_attr_color",
@@ -374,29 +371,38 @@ def print_summary(label, items, dims):
         print(f"  by {dim}: {breakdown}")
 
 
-def append_manifest(rows):
-    """Append one complete upload record per physical JSONL line.
-
-    Migrate the legacy CSV once when it is present and the JSONL file is not,
-    preserving prior upload history. Embedded newlines such as those in
-    `autoReason` are JSON-escaped and cannot split a record across lines.
-    """
+def write_manifest_snapshot(db):
+    """Rewrite JSONL from live Firestore datapoints, one document per line."""
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
-    if not MANIFEST_PATH.exists() and LEGACY_MANIFEST_PATH.is_file():
-        with open(LEGACY_MANIFEST_PATH, newline="") as legacy_file:
-            legacy_rows = list(csv.DictReader(legacy_file))
-        for row in legacy_rows:
-            if row.get("autoCorrect") in {"True", "False"}:
-                row["autoCorrect"] = row["autoCorrect"] == "True"
-        with open(MANIFEST_PATH, "w") as manifest_file:
-            for row in legacy_rows:
-                manifest_file.write(json.dumps(row, ensure_ascii=False) + "\n")
-        print(f"Migrated {len(legacy_rows)} legacy rows from "
-              f"{LEGACY_MANIFEST_PATH} to {MANIFEST_PATH}.")
+    records = []
+    for doc_snap in db.collection("datapoints").stream():
+        data = doc_snap.to_dict() or {}
+        source_path = data.get("sourcePath", "")
+        parts = Path(source_path).parts
+        has_standard_path = len(parts) >= 6 and parts[-2] == "samples"
+        created_at = data.get("createdAt")
+        records.append({
+            "docId": doc_snap.id,
+            "uploadedAt": created_at.isoformat() if created_at else None,
+            "model": parts[0] if has_standard_path else data.get("model"),
+            "category": parts[2] if has_standard_path else data.get("category"),
+            "posNeg": parts[1] if has_standard_path else data.get("posNeg"),
+            "tag": data.get("tag"),
+            "idx": parts[-3] if has_standard_path else None,
+            "sample": parts[-1] if has_standard_path else None,
+            "prompt": data.get("prompt"),
+            "autoCorrect": data.get("autoCorrect"),
+            "autoReason": data.get("autoReason", ""),
+            "storagePath": f"{STORAGE_PREFIX}/{doc_snap.id}.png",
+            "sourcePath": source_path,
+        })
 
-    with open(MANIFEST_PATH, "a") as manifest_file:
-        for row in rows:
-            manifest_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+    temp_path = MANIFEST_PATH.with_suffix(".jsonl.tmp")
+    with open(temp_path, "w") as manifest_file:
+        for record in sorted(records, key=lambda row: row["docId"]):
+            manifest_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+    temp_path.replace(MANIFEST_PATH)
+    return len(records)
 
 
 def parse_args():
@@ -517,9 +523,6 @@ def main():
             print(f"  would upload {c['doc_id']}  (correct={c['correct']})")
         return
 
-    manifest_rows = []
-    uploaded_at = datetime.now(timezone.utc).isoformat()
-
     for c in selected:
         doc_id = c["doc_id"]
         storage_path = f"{STORAGE_PREFIX}/{doc_id}.png"
@@ -547,25 +550,9 @@ def main():
         db.collection("datapoints").document(doc_id).set(datapoint)
         print(f"Inserted datapoints/{doc_id}  <-  {c['source_relpath']}")
 
-        manifest_rows.append({
-            "docId": doc_id,
-            "uploadedAt": uploaded_at,
-            "model": c["model"],
-            "category": c["category"],
-            "posNeg": c["setting"],
-            "tag": metadata.get("tag"),
-            "idx": c["idx"],
-            "sample": c["sample"],
-            "prompt": metadata["prompt"],
-            "autoCorrect": c["correct"],
-            "autoReason": c["reason"],
-            "storagePath": storage_path,
-            "sourcePath": c["source_relpath"],
-        })
-
-    append_manifest(manifest_rows)
+    manifest_count = write_manifest_snapshot(db)
     print(f"\nDone. Inserted {len(selected)} datapoints. "
-          f"Manifest updated at {MANIFEST_PATH}")
+          f"Manifest refreshed with {manifest_count} live datapoints at {MANIFEST_PATH}")
 
 
 if __name__ == "__main__":
