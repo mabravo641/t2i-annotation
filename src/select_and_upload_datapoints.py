@@ -234,9 +234,13 @@ def existing_record(doc):
         return None
     return {
         "doc_id": doc.id,
-        "model": data.get("model") or parts[0],
-        "setting": data.get("posNeg") or parts[1],
-        "category": data.get("category") or parts[2],
+        # Use sourcePath for the corpus identity. Firestore's `category` field
+        # stores the semantic value (e.g. "material"), while selection uses the
+        # dataset directory name (e.g. "neg_attr_material"). Mixing those two
+        # representations caused existing uploads to be missed.
+        "model": parts[0],
+        "setting": parts[1],
+        "category": parts[2],
         "idx": parts[-3],
         "sample": parts[-1],
         "correct": data.get("autoCorrect"),
@@ -434,6 +438,9 @@ def main():
             print(f"\nWarning: {len(unresolved)} existing prompt groups cannot yet "
                   "be completed for every requested model because images/results "
                   f"are unavailable: {unresolved}")
+        print_summary(
+            "Selected prompt groups", bundle_rows, ["category", "setting"]
+        )
     if exhausted_strata:
         print(f"\nNote: {len(exhausted_strata)} of the requested strata ran out of "
               f"candidates before reaching an even split: {exhausted_strata}")
@@ -444,7 +451,14 @@ def main():
         print(f"\nWarning: only {len(bundle_rows)} of {requested} requested "
               "all-model prompt groups could be formed from the available pool.")
 
-    print_summary("Selected batch", selected, ["model", "category", "setting", "correct"])
+    image_summary_label = (
+        "New image datapoints to upload" if not args.unpaired else "Selected batch"
+    )
+    print_summary(
+        image_summary_label,
+        selected,
+        ["model", "category", "setting", "correct"],
+    )
 
     if args.dry_run:
         print("\n--dry-run set: not uploading anything.")
