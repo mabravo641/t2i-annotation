@@ -1,10 +1,10 @@
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   where,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
@@ -35,44 +35,28 @@ async function getAnnotatorSeenDatapointIds() {
   return seen;
 }
 
-async function getCompletedAssignmentCountsMap() {
-  const completedSnap = await getDocs(
-    query(collection(db, "assignments"), where("status", "==", "completed"))
-  );
-
-  const perDatapointAnnotators = new Map();
-  completedSnap.forEach((docSnap) => {
-    const { annotatorId, datapointId } = docSnap.data();
-    if (!annotatorId || !datapointId) return;
-
-    if (!perDatapointAnnotators.has(datapointId)) {
-      perDatapointAnnotators.set(datapointId, new Set());
-    }
-    perDatapointAnnotators.get(datapointId).add(annotatorId);
-  });
-
-  const counts = new Map();
-  perDatapointAnnotators.forEach((annotators, datapointId) => {
-    counts.set(datapointId, annotators.size);
-  });
-  return counts;
-}
-
 /* Every datapoint this annotator hasn't touched yet and that hasn't already
-   reached its target annotation count. Used both to pick the next assignment
-   and, via its length, as the "how many are left for me" progress count. */
+   reserved three annotation slots. The reservation count includes assigned and
+   completed work, so simultaneous clients cannot all target the same last slot. */
 export async function getEligibleCandidates() {
   const seenDatapoints = await getAnnotatorSeenDatapointIds();
-  const completedCountsByDatapoint = await getCompletedAssignmentCountsMap();
   const datapointsSnapshot = await getDocs(collection(db, "datapoints"));
   const candidates = [];
+  const target = APP_CONFIG.targetAnnotationsPerDatapoint || 3;
 
   for (const datapointDoc of datapointsSnapshot.docs) {
     if (seenDatapoints.has(datapointDoc.id)) continue;
-    const completedCount = completedCountsByDatapoint.get(datapointDoc.id) || 0;
+    const reservedCount = datapointDoc.data().reservedAnnotationSlots;
+    // Refuse to assign uninitialized datapoints. Treating a missing counter as
+    // zero would violate the cap when historical assignments already exist.
+    if (!Number.isInteger(reservedCount)) {
+      console.warn(`Datapoint ${datapointDoc.id} has no reservedAnnotationSlots; run the backfill.`);
+      continue;
+    }
+    if (reservedCount >= target) continue;
     candidates.push({
       datapointId: datapointDoc.id,
-      completedCount,
+      reservedCount,
     });
   }
 
@@ -93,33 +77,61 @@ export async function getOrCreateAssignment(candidates) {
 
   if (!candidates.length) return null;
 
-  const minCount = Math.min(...candidates.map((candidate) => candidate.completedCount));
-  const prioritized = candidates.filter(
-    (candidate) => candidate.completedCount === minCount
-  );
-  const underTarget = prioritized.filter(
-    (candidate) => candidate.completedCount < (APP_CONFIG.targetAnnotationsPerDatapoint || 3)
-  );
+  // Randomize within each reservation-count tier while retaining least-covered
+  // first priority. If concurrent clients fill a tier, continue to the next.
+  const pool = [];
+  const counts = [...new Set(candidates.map((candidate) => candidate.reservedCount))].sort();
+  for (const count of counts) {
+    const tier = candidates.filter((candidate) => candidate.reservedCount === count);
+    while (tier.length) {
+      pool.push(tier.splice(Math.floor(Math.random() * tier.length), 1)[0]);
+    }
+  }
+  const target = APP_CONFIG.targetAnnotationsPerDatapoint || 3;
+  for (const selected of pool) {
+    // Deterministic per annotator+datapoint ID prevents two tabs/devices for the
+    // same annotator from consuming two slots in a concurrent race.
+    const assignmentId = `${selected.datapointId}__${state.annotator.annotatorId}`;
+    const assignmentRef = doc(db, "assignments", assignmentId);
+    const datapointRef = doc(db, "datapoints", selected.datapointId);
+    const assignment = await runTransaction(db, async (transaction) => {
+      const datapointSnap = await transaction.get(datapointRef);
+      const assignmentSnap = await transaction.get(assignmentRef);
+      if (assignmentSnap.exists()) {
+        const prior = assignmentSnap.data();
+        return prior.status === "assigned"
+          ? { assignmentId: assignmentRef.id, ...prior }
+          : null;
+      }
+      if (!datapointSnap.exists()) return null;
+      const reservedCount = datapointSnap.data().reservedAnnotationSlots;
+      if (!Number.isInteger(reservedCount)) {
+        throw new Error(`Datapoint ${selected.datapointId} is not assignment-counter initialized.`);
+      }
+      if (reservedCount >= target) return null;
 
-  const pool = underTarget.length ? underTarget : prioritized;
-  const selected = pool[Math.floor(Math.random() * pool.length)];
+      transaction.update(datapointRef, {
+        reservedAnnotationSlots: reservedCount + 1,
+      });
+      transaction.set(assignmentRef, {
+        annotatorId: state.annotator.annotatorId,
+        datapointId: selected.datapointId,
+        status: "assigned",
+        assignedAt: serverTimestamp(),
+        completedAt: null,
+      });
+      return {
+        assignmentId: assignmentRef.id,
+        datapointId: selected.datapointId,
+        status: "assigned",
+      };
+    });
+    if (assignment) return assignment;
+  }
 
-  // TODO: replace this block with a Firestore transaction when moving to production multi-user scale.
-  // Keep assignment creation isolated so this can be upgraded to a Firestore transaction safely.
-  // Without a transaction, simultaneous clients can over-assign the same datapoint.
-  const assignmentRef = await addDoc(collection(db, "assignments"), {
-    annotatorId: state.annotator.annotatorId,
-    datapointId: selected.datapointId,
-    status: "assigned",
-    assignedAt: serverTimestamp(),
-    completedAt: null,
-  });
-
-  return {
-    assignmentId: assignmentRef.id,
-    datapointId: selected.datapointId,
-    status: "assigned",
-  };
+  // Every candidate in this priority tier was filled by concurrent clients.
+  // The caller will refresh the pool on its next load attempt.
+  return null;
 }
 
 export async function loadDatapoint(datapointId) {

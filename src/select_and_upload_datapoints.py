@@ -10,9 +10,10 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
   automatic system judged it correct or incorrect. Evaluation results are
   produced incrementally, so a model/category/setting with no results.jsonl yet
   is simply skipped unless --include-unknown-correctness is passed.
-- Selects a balanced sample across model / category / pos-neg setting / automatic
-  correctness using round-robin stratified sampling, so no single combination
-  dominates the ~500-image annotation set.
+- By default selects prompt-matched bundles: one generated image for every
+  requested model, balanced across category, pos-neg setting, and automatic
+  correctness. Existing uploads are treated as fixed bundle members and every
+  feasible incomplete existing bundle is completed before new prompts are added.
 - Skips any image already present in Firestore `datapoints` (by deterministic
   document ID), so the script is safe to re-run as more evaluation results land.
 - Records every upload to a local CSV manifest
@@ -23,17 +24,17 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
 
 Usage examples
 --------------
-Preview a balanced batch of 40 images across every model/category/setting,
+Preview 40 prompt groups across every model/category/setting,
 using only images with a known automatic-evaluator verdict, without touching
 Firebase:
 
-    .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py --num-total 40 --dry-run
+    .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py --num-prompts 40 --dry-run
 
-Upload 500 images, balancing only by model and automatic correctness (let
-category/setting vary naturally):
+Use the legacy independent-image mode to upload 500 images balanced only by
+model and automatic correctness (letting category/setting vary naturally):
 
     .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \\
-        --num-total 500 --balance-by model correct
+        --unpaired --num-total 500 --balance-by model correct
 
 Restrict to specific models/categories:
 
@@ -79,6 +80,7 @@ ALL_CATEGORIES = [
     "neg_rel_proximity",
 ]
 BALANCE_DIMENSIONS = ["model", "category", "setting", "correct"]
+PAIRED_BALANCE_DIMENSIONS = ["category", "setting"]
 
 
 def discover_models():
@@ -218,6 +220,111 @@ def stratified_sample(candidates, dims, num_total, rng):
     return selected, exhausted
 
 
+def prompt_key(item):
+    """Stable prompt identity shared by every model's rendering."""
+    return item["setting"], item["category"], item["idx"]
+
+
+def existing_record(doc):
+    """Convert a Firestore datapoint to the fields needed by paired selection."""
+    data = doc.to_dict() or {}
+    source_path = data.get("sourcePath", "")
+    parts = Path(source_path).parts
+    if len(parts) < 6 or parts[-2] != "samples":
+        return None
+    return {
+        "doc_id": doc.id,
+        "model": data.get("model") or parts[0],
+        "setting": data.get("posNeg") or parts[1],
+        "category": data.get("category") or parts[2],
+        "idx": parts[-3],
+        "sample": parts[-1],
+        "correct": data.get("autoCorrect"),
+        "source_relpath": source_path,
+    }
+
+
+def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
+    """Select missing images for prompt-matched, all-model bundles.
+
+    Every returned prompt has either an existing or newly selected datapoint for
+    each requested model. Existing prompt groups are completed first. New prompt
+    groups are round-robin balanced over category and setting. Within each model,
+    image choice favors the currently underrepresented evaluator-correctness
+    bucket, including existing uploads in those counts.
+    """
+    pool = defaultdict(lambda: defaultdict(list))
+    for candidate in candidates:
+        pool[prompt_key(candidate)][candidate["model"]].append(candidate)
+
+    existing_by_prompt = defaultdict(lambda: defaultdict(list))
+    correctness_counts = {model: Counter() for model in models}
+    for item in existing:
+        if item["model"] not in models:
+            continue
+        existing_by_prompt[prompt_key(item)][item["model"]].append(item)
+        correctness_counts[item["model"]][item["correct"]] += 1
+
+    def is_feasible(key):
+        return all(existing_by_prompt[key].get(model) or pool[key].get(model)
+                   for model in models)
+
+    existing_keys = set(existing_by_prompt)
+    mandatory = sorted(key for key in existing_keys if is_feasible(key))
+    unresolved = sorted(key for key in existing_keys if not is_feasible(key))
+
+    # --num-prompts is the desired total number of prompt groups. Completing all
+    # feasible pre-existing groups is a stronger invariant and may exceed it.
+    selected_keys = list(mandatory)
+    target = max(num_prompts, len(selected_keys))
+    fresh = [
+        {"setting": key[0], "category": key[1], "idx": key[2], "key": key}
+        for key in pool
+        if key not in existing_keys and is_feasible(key)
+    ]
+    chosen_fresh, exhausted = stratified_sample(
+        fresh, PAIRED_BALANCE_DIMENSIONS, target - len(selected_keys), rng
+    )
+    selected_keys.extend(item["key"] for item in chosen_fresh)
+
+    selected = []
+    bundle_rows = []
+    for key in selected_keys:
+        setting, category, idx = key
+        existing_models = sorted(
+            model for model in models if existing_by_prompt[key].get(model)
+        )
+        added_models = []
+        for model in models:
+            if existing_by_prompt[key].get(model):
+                continue
+            options = pool[key][model]
+            by_correct = defaultdict(list)
+            for option in options:
+                by_correct[option["correct"]].append(option)
+            # Choose a correctness bucket least represented for this model, then
+            # one random rendering inside it. This balances True/False (and None
+            # when explicitly enabled) without breaking prompt matching.
+            min_count = min(correctness_counts[model][value] for value in by_correct)
+            values = [value for value in by_correct
+                      if correctness_counts[model][value] == min_count]
+            value = rng.choice(values)
+            choice = rng.choice(by_correct[value])
+            choice["prompt_group_id"] = f"{setting}-{category}-{idx}"
+            selected.append(choice)
+            added_models.append(model)
+            correctness_counts[model][value] += 1
+        bundle_rows.append({
+            "setting": setting,
+            "category": category,
+            "idx": idx,
+            "existing_models": existing_models,
+            "added_models": added_models,
+        })
+
+    return selected, bundle_rows, unresolved, exhausted
+
+
 def print_summary(label, items, dims):
     print(f"\n{label} ({len(items)} items):")
     for dim in dims:
@@ -248,7 +355,14 @@ def parse_args():
     parser.add_argument("--settings", nargs="+", default=None,
                          help="pos<P>_neg<N> dirs to include (default: all discovered)")
     parser.add_argument("--num-total", type=int, default=40,
-                         help="How many datapoints to select (default: 40)")
+                         help="Legacy unpaired mode: datapoints to select; paired "
+                              "mode: alias for --num-prompts (default: 40)")
+    parser.add_argument("--num-prompts", type=int, default=None,
+                         help="Desired total prompt groups in paired mode; each "
+                              "group has one datapoint per requested model")
+    parser.add_argument("--unpaired", action="store_true",
+                         help="Use the legacy independent-datapoint sampler instead "
+                              "of selecting one image per model for each prompt")
     parser.add_argument("--balance-by", nargs="+", default=BALANCE_DIMENSIONS,
                          choices=BALANCE_DIMENSIONS,
                          help="Dimensions to stratify the sample on (default: all)")
@@ -286,20 +400,49 @@ def main():
     db = firestore.client()
     bucket = storage.bucket()
 
-    existing_ids = {ref.id for ref in db.collection("datapoints").list_documents()}
+    existing_docs = list(db.collection("datapoints").stream())
+    existing_ids = {doc.id for doc in existing_docs}
+    existing = [
+        item for doc in existing_docs
+        if (item := existing_record(doc))
+        and item["model"] in args.models
+        and item["setting"] in settings
+        and item["category"] in args.categories
+    ]
     candidates = [c for c in candidates if c["doc_id"] not in existing_ids]
     print(f"\n{len(candidates)} candidates remain after excluding "
           f"{len(existing_ids)} already-uploaded datapoints.")
 
-    selected, exhausted_strata = stratified_sample(
-        candidates, args.balance_by, args.num_total, rng
-    )
+    if args.unpaired:
+        selected, exhausted_strata = stratified_sample(
+            candidates, args.balance_by, args.num_total, rng
+        )
+        bundle_rows = []
+        unresolved = []
+        requested = args.num_total
+    else:
+        requested = args.num_prompts if args.num_prompts is not None else args.num_total
+        selected, bundle_rows, unresolved, exhausted_strata = select_paired_by_prompt(
+            candidates, existing, args.models, requested, rng
+        )
+        print(f"\nPaired selection: {len(bundle_rows)} prompt groups, "
+              f"{len(selected)} new datapoints, {len(args.models)} requested models/group.")
+        for row in bundle_rows:
+            print(f"  {row['setting']}/{row['category']}/{row['idx']}: "
+                  f"existing={row['existing_models']} add={row['added_models']}")
+        if unresolved:
+            print(f"\nWarning: {len(unresolved)} existing prompt groups cannot yet "
+                  "be completed for every requested model because images/results "
+                  f"are unavailable: {unresolved}")
     if exhausted_strata:
         print(f"\nNote: {len(exhausted_strata)} of the requested strata ran out of "
               f"candidates before reaching an even split: {exhausted_strata}")
-    if len(selected) < args.num_total:
-        print(f"\nWarning: only {len(selected)} of {args.num_total} requested "
-              f"datapoints could be selected from the available pool.")
+    if args.unpaired and len(selected) < requested:
+        print(f"\nWarning: only {len(selected)} of {requested} requested "
+              "datapoints could be selected from the available pool.")
+    if not args.unpaired and len(bundle_rows) < requested:
+        print(f"\nWarning: only {len(bundle_rows)} of {requested} requested "
+              "all-model prompt groups could be formed from the available pool.")
 
     print_summary("Selected batch", selected, ["model", "category", "setting", "correct"])
 
@@ -332,6 +475,8 @@ def main():
             "sourcePath": c["source_relpath"],
             "autoCorrect": c["correct"],
             "autoReason": c["reason"],
+            "promptGroupId": c.get("prompt_group_id"),
+            "reservedAnnotationSlots": 0,
             "createdAt": firestore.SERVER_TIMESTAMP,
         }
         db.collection("datapoints").document(doc_id).set(datapoint)

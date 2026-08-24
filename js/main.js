@@ -1,9 +1,7 @@
 import {
-  addDoc,
-  collection,
   doc,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 import { hasPlaceholderFirebaseConfig } from "./config.js";
@@ -96,12 +94,27 @@ async function submitCurrentAnnotation() {
       objectFailure: hasObjectFailure(),
     };
 
-    const annotationRef = await addDoc(collection(db, "annotations"), annotationPayload);
-
-    await updateDoc(doc(db, "assignments", state.assignment.assignmentId), {
-      status: "completed",
-      completedAt: serverTimestamp(),
-      submittedAnnotationId: annotationRef.id,
+    // One deterministic annotation per assignment. The transaction makes a
+    // retry idempotent if the network drops during submission.
+    const annotationRef = doc(db, "annotations", state.assignment.assignmentId);
+    const assignmentRef = doc(db, "assignments", state.assignment.assignmentId);
+    await runTransaction(db, async (transaction) => {
+      const assignmentSnap = await transaction.get(assignmentRef);
+      if (!assignmentSnap.exists()) throw new Error("Assignment no longer exists.");
+      const assignment = assignmentSnap.data();
+      if (assignment.annotatorId !== state.annotator.annotatorId) {
+        throw new Error("Assignment belongs to a different annotator.");
+      }
+      if (assignment.status === "completed") return;
+      if (assignment.status !== "assigned") {
+        throw new Error(`Assignment is not active (${assignment.status}).`);
+      }
+      transaction.set(annotationRef, annotationPayload);
+      transaction.update(assignmentRef, {
+        status: "completed",
+        completedAt: serverTimestamp(),
+        submittedAnnotationId: annotationRef.id,
+      });
     });
 
     showStatus("Annotation saved. Loading next datapoint...");

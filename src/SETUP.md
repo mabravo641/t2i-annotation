@@ -12,14 +12,48 @@ never commit it).
 
 ## Upload datapoints for annotation
 
-Preview a balanced batch first, then upload for real. Balances across model,
-category, pos/neg setting, and automatic-evaluator correctness; skips anything
-already uploaded, so it's safe to re-run as more evaluation results land.
+Preview a balanced batch first, then upload for real. The default paired mode
+selects prompt groups balanced across category and pos/neg setting, with one
+image for every requested model. Image selection also balances each model's
+automatic-evaluator correctness. Existing uploads count as fixed group members;
+the script adds only missing models for those prompts and never uploads the same
+source image twice.
 
 ```bash
-.venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py --num-total 40 --dry-run
-.venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py --num-total 40
+.venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
+  --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42 --dry-run
+.venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
+  --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42
 ```
+
+`--num-prompts 40` means 40 matched prompt groups, not 40 images. With four
+models that is 160 total datapoints before crediting images already uploaded.
+All feasible existing prompt groups are completed first, even when there are
+more than the requested number. Use an explicit `--models` list: including a
+partially generated/unevaluated model restricts selection to prompts available
+for that model (or requires `--include-unknown-correctness`).
+
+Use `--unpaired --num-total N` only to reproduce the older behavior where each
+image is selected independently. Paired uploads receive a stable
+`promptGroupId` (`<setting>-<category>-<idx>`) for later grouped analysis or a
+ranking interface.
+
+## Initialize the three-annotator cap
+
+Assignment creation reserves a slot in a Firestore transaction, enforcing the
+`targetAnnotationsPerDatapoint` cap even when annotators request work at the
+same time. Before deploying that website code, initialize existing datapoints:
+
+```bash
+.venv/bin/python t2i-annotation/src/backfill_assignment_slots.py
+.venv/bin/python t2i-annotation/src/backfill_assignment_slots.py --apply
+```
+
+The first command is an audit-only dry run. Review any `OVER TARGET` or orphan
+warnings before applying. Assigned slots remain reserved if an annotator walks
+away; this preserves the strict cap but may require an administrator to cancel
+stale assignments and decrement the corresponding counter in a future cleanup
+workflow. Newly uploaded datapoints start with zero reserved slots.
 
 See the top of `select_and_upload_datapoints.py` for all options
 (`--models`, `--categories`, `--settings`, `--balance-by`, ...). Every upload
