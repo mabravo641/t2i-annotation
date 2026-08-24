@@ -33,6 +33,12 @@ more than the requested number. Use an explicit `--models` list: including a
 partially generated/unevaluated model restricts selection to prompts available
 for that model (or requires `--include-unknown-correctness`).
 
+Existing prompt groups are fixed inputs to balancing. When `--num-prompts` is
+larger than their count, new prompts preferentially fill the least-represented
+category and pos/neg setup buckets. Historical excesses cannot be reduced
+without removing already uploaded datapoints, so the result is the closest
+attainable marginal balance rather than necessarily equal counts.
+
 Use `--unpaired --num-total N` only to reproduce the older behavior where each
 image is selected independently. Paired uploads receive a stable
 `promptGroupId` (`<setting>-<category>-<idx>`) for later grouped analysis or a

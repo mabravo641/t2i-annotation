@@ -14,6 +14,7 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
   requested model, balanced across category, pos-neg setting, and automatic
   correctness. Existing uploads are treated as fixed bundle members and every
   feasible incomplete existing bundle is completed before new prompts are added.
+  New prompts compensate for category/setting deficits in those existing groups.
 - Skips any image already present in Firestore `datapoints` (by deterministic
   document ID), so the script is safe to re-run as more evaluation results land.
 - Records every upload to a local CSV manifest
@@ -220,6 +221,35 @@ def stratified_sample(candidates, dims, num_total, rng):
     return selected, exhausted
 
 
+def marginally_balanced_sample(candidates, dims, num_total, initial_items, rng):
+    """Greedily fill marginal deficits across `dims`.
+
+    Unlike joint-stratum round robin, this starts from mandatory existing prompt
+    groups. Each next candidate minimizes the sum of its current marginal bucket
+    counts, with the largest individual bucket as a tie-breaker. Random choice
+    among equal candidates preserves seed-controlled variation.
+    """
+    counts = {dim: Counter(item[dim] for item in initial_items) for dim in dims}
+    remaining = list(candidates)
+    selected = []
+    while remaining and len(selected) < num_total:
+        scores = [
+            (
+                sum(counts[dim][item[dim]] for dim in dims),
+                max(counts[dim][item[dim]] for dim in dims),
+            )
+            for item in remaining
+        ]
+        best_score = min(scores)
+        best_indices = [i for i, score in enumerate(scores) if score == best_score]
+        chosen_index = rng.choice(best_indices)
+        chosen = remaining.pop(chosen_index)
+        selected.append(chosen)
+        for dim in dims:
+            counts[dim][chosen[dim]] += 1
+    return selected
+
+
 def prompt_key(item):
     """Stable prompt identity shared by every model's rendering."""
     return item["setting"], item["category"], item["idx"]
@@ -281,13 +311,21 @@ def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
     # feasible pre-existing groups is a stronger invariant and may exceed it.
     selected_keys = list(mandatory)
     target = max(num_prompts, len(selected_keys))
+    mandatory_items = [
+        {"setting": key[0], "category": key[1], "idx": key[2], "key": key}
+        for key in selected_keys
+    ]
     fresh = [
         {"setting": key[0], "category": key[1], "idx": key[2], "key": key}
         for key in pool
         if key not in existing_keys and is_feasible(key)
     ]
-    chosen_fresh, exhausted = stratified_sample(
-        fresh, PAIRED_BALANCE_DIMENSIONS, target - len(selected_keys), rng
+    chosen_fresh = marginally_balanced_sample(
+        fresh,
+        PAIRED_BALANCE_DIMENSIONS,
+        target - len(selected_keys),
+        mandatory_items,
+        rng,
     )
     selected_keys.extend(item["key"] for item in chosen_fresh)
 
@@ -326,7 +364,7 @@ def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
             "added_models": added_models,
         })
 
-    return selected, bundle_rows, unresolved, exhausted
+    return selected, bundle_rows, unresolved, []
 
 
 def print_summary(label, items, dims):
