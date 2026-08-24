@@ -17,8 +17,8 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
   New prompts compensate for category/setting deficits in those existing groups.
 - Skips any image already present in Firestore `datapoints` (by deterministic
   document ID), so the script is safe to re-run as more evaluation results land.
-- Records every upload to a local CSV manifest
-  (`t2i-annotation/src/manifests/upload_manifest.csv`) for easy review, in
+- Records every upload to a line-oriented JSONL manifest
+  (`t2i-annotation/src/manifests/upload_manifest.jsonl`) for easy review, in
   addition to the fields already stored on the Firestore document.
 
 `omar_data` is read-only for this script; it is never modified.
@@ -65,12 +65,9 @@ STORAGE_BUCKET = "neg-gen.firebasestorage.app"
 SERVICE_ACCOUNT_FILE = (
     REPO_ROOT / "firebase" / "neg-gen-firebase-adminsdk-fbsvc-caafa15513.json"
 )
-MANIFEST_PATH = Path(__file__).resolve().parent / "manifests" / "upload_manifest.csv"
-MANIFEST_FIELDS = [
-    "docId", "uploadedAt", "model", "category", "posNeg", "tag",
-    "idx", "sample", "prompt", "autoCorrect", "autoReason",
-    "storagePath", "sourcePath",
-]
+MANIFEST_DIR = Path(__file__).resolve().parent / "manifests"
+MANIFEST_PATH = MANIFEST_DIR / "upload_manifest.jsonl"
+LEGACY_MANIFEST_PATH = MANIFEST_DIR / "upload_manifest.csv"
 
 ALL_CATEGORIES = [
     "neg_attr_color",
@@ -378,12 +375,28 @@ def print_summary(label, items, dims):
 
 
 def append_manifest(rows):
-    is_new = not MANIFEST_PATH.exists()
-    with open(MANIFEST_PATH, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS)
-        if is_new:
-            writer.writeheader()
-        writer.writerows(rows)
+    """Append one complete upload record per physical JSONL line.
+
+    Migrate the legacy CSV once when it is present and the JSONL file is not,
+    preserving prior upload history. Embedded newlines such as those in
+    `autoReason` are JSON-escaped and cannot split a record across lines.
+    """
+    MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+    if not MANIFEST_PATH.exists() and LEGACY_MANIFEST_PATH.is_file():
+        with open(LEGACY_MANIFEST_PATH, newline="") as legacy_file:
+            legacy_rows = list(csv.DictReader(legacy_file))
+        for row in legacy_rows:
+            if row.get("autoCorrect") in {"True", "False"}:
+                row["autoCorrect"] = row["autoCorrect"] == "True"
+        with open(MANIFEST_PATH, "w") as manifest_file:
+            for row in legacy_rows:
+                manifest_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+        print(f"Migrated {len(legacy_rows)} legacy rows from "
+              f"{LEGACY_MANIFEST_PATH} to {MANIFEST_PATH}.")
+
+    with open(MANIFEST_PATH, "a") as manifest_file:
+        for row in rows:
+            manifest_file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def parse_args():

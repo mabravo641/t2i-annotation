@@ -63,7 +63,10 @@ workflow. Newly uploaded datapoints start with zero reserved slots.
 
 See the top of `select_and_upload_datapoints.py` for all options
 (`--models`, `--categories`, `--settings`, `--balance-by`, ...). Every upload
-is logged to `manifests/upload_manifest.csv`.
+is logged as one complete JSON object per line in
+`manifests/upload_manifest.jsonl`. If a legacy `upload_manifest.csv` exists,
+the first real upload automatically migrates its historical rows before
+appending new records.
 
 ## Download submitted annotations
 
