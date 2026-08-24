@@ -70,6 +70,25 @@ Writes `annotations/annotations.jsonl` (full fidelity) and
 datapoint's prompt/model/category and each annotator's nickname/email.
 Overwrites on every run to reflect the current state of Firestore.
 
+## Verify or reset annotation data
+
+Audit Firestore fields and source-image integrity (the first form is faster):
+
+```bash
+.venv/bin/python t2i-annotation/src/verify_datapoints.py --skip-image-check
+.venv/bin/python t2i-annotation/src/verify_datapoints.py
+```
+
+Preview a test-data reset without changing Firebase:
+
+```bash
+.venv/bin/python t2i-annotation/src/reset_test_data.py --dry-run
+```
+
+`reset_test_data.py --yes` permanently deletes all datapoints, annotations,
+assignments, and uploaded annotation images. It deliberately preserves
+annotator identities. Use it only when starting a new annotation round.
+
 ## Shared logic
 
 `datapoint_fields.py` builds the `objects`/`conditions` fields from GenEval
