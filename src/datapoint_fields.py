@@ -4,11 +4,9 @@ Used by every script that writes to the Firestore `datapoints` collection
 (add_datapoint.py, add_random_flux2_datapoints.py, select_and_upload_datapoints.py)
 so the object/condition-building logic lives in exactly one place.
 
-Each condition carries both a plain-English `question` (for anything that just
-wants to display text, e.g. the manifest CSV) and structured fields
-(`type`, `subject`, `predicate`, `target`, `polarity`) so the annotation
-website can render the object/relation/attribute words in bold and "not" in a
-distinct style, per NEGGENEVAL CONTEXT.md's datapoint structure.
+Each condition asks only about the positive visual predicate. Negation stays in
+the internal `polarity`/`expected` fields, so a human answer can later be
+compared with `expected` to determine prompt satisfaction.
 """
 
 
@@ -31,15 +29,21 @@ def build_conditions(metadata):
             obj = slot["object"]
             value = slot["value"]
             polarity = slot["polarity"]
-            phrase = value if polarity == "pos" else f"not {value}"
+            question = (
+                f"Does the {obj} appear {value}?"
+                if category == "material"
+                else f"Is the {obj} {value}?"
+            )
             conditions.append(
                 {
                     "id": f"cond_attr_{i}",
                     "type": "attribute",
+                    "category": category,
                     "subject": obj,
                     "predicate": value,
                     "polarity": polarity,
-                    "question": f"Is the {obj} {phrase}?",
+                    "expected": polarity == "pos",
+                    "question": question,
                 }
             )
         return conditions
@@ -65,8 +69,9 @@ def build_conditions(metadata):
                 "subject": subject,
                 "predicate": predicate,
                 "polarity": polarity,
+                "expected": polarity == "pos",
                 "target": target,
-                "question": f"Is the {subject} {relation_phrase} the {target}?",
+                "question": f"Is the {subject} {predicate} the {target}?",
             }
         )
     return conditions

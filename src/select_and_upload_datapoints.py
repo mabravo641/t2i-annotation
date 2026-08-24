@@ -536,6 +536,7 @@ def main():
             "imageUrl": blob.public_url,
             "objects": build_objects(metadata),
             "conditions": build_conditions(metadata),
+            "conditionQuestionVersion": 2,
             "tag": metadata.get("tag"),
             "category": metadata.get("category"),
             "model": c["model"],

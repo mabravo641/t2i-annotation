@@ -158,12 +158,6 @@ body {
   font-weight: 700;
 }
 
-.hl-not {
-  font-weight: 700;
-  font-style: italic;
-  color: #1d4ed8;
-}
-
 .answer-row {
   display: flex;
   gap: 0.5rem;

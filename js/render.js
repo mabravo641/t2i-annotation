@@ -42,8 +42,8 @@ export function renderDatapoint() {
     const answerRow = document.createElement("div");
     answerRow.className = "answer-row";
 
-    const correctButton = createAnswerButton(question, questionIndex, true, "[1] ✓ Correct");
-    const wrongButton = createAnswerButton(question, questionIndex, false, "[2] ✗ Wrong");
+    const correctButton = createAnswerButton(question, questionIndex, true, "[1] Yes");
+    const wrongButton = createAnswerButton(question, questionIndex, false, "[2] No");
 
     answerRow.append(correctButton, wrongButton);
     card.append(title, answerRow);

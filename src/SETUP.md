@@ -98,6 +98,33 @@ Preview a test-data reset without changing Firebase:
 assignments, and uploaded annotation images. It deliberately preserves
 annotator identities. Use it only when starting a new annotation round.
 
+## Migrate old negated annotation questions
+
+Version 2 asks annotators only about positive visual predicates and stores
+negation internally as `expected: false`. Audit and migrate older datapoints and
+answers with:
+
+```bash
+.venv/bin/python t2i-annotation/src/migrate_positive_condition_questions.py
+.venv/bin/python t2i-annotation/src/migrate_positive_condition_questions.py --apply
+```
+
+For negative conditions, the migration inverts the historical boolean answer
+so its meaning remains unchanged (old “Yes, it is not wooden” becomes new “No,
+it is wooden”). Version markers make repeated runs safe.
+
+Merge overlapping old/new local exports without double-counting annotations:
+
+```bash
+.venv/bin/python t2i-annotation/src/merge_annotation_exports.py
+```
+
+The default inputs cover `annotations_1`, `annotations`, the pre-migration
+backup, and `graveyard/annotations`, plus both manifest locations. Output goes
+to `src/annotations_merged/` as deduplicated version-2 JSONL. Duplicate
+`annotationId` values count once; version-2 copies are preferred, and old-only
+negative-condition responses are converted automatically.
+
 ## Shared logic
 
 `datapoint_fields.py` builds the `objects`/`conditions` fields from GenEval

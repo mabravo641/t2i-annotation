@@ -15,5 +15,7 @@ venv/
 
 # Downloaded annotation exports contain annotator emails; keep them local.
 src/annotations/
+src/annotations_1/
+src/annotations_merged/
 src/manifests/
 src/graveyard/
