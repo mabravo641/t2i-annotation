@@ -19,6 +19,7 @@ samples/annotations_1/
 samples/annotations_merged/
 samples/manifests/
 samples/graveyard/
+samples/metric_evaluation/
 
 # Portable backups of images stored in Firebase Storage are local-only.
 samples/images/

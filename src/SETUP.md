@@ -134,9 +134,8 @@ Merge overlapping old/new local exports without double-counting annotations:
 .venv/bin/python t2i-annotation/src/merge_annotation_exports.py
 ```
 
-The default inputs cover `samples/graveyard/annotations_1`,
-`samples/annotations`, the pre-migration backup, and
-`samples/graveyard/annotations`, plus both manifest locations. Output goes to
+The default inputs cover `samples/annotations`, its pre-migration backup, and
+the current upload manifest. Output goes to
 `samples/annotations_merged/` as deduplicated version-2 JSONL. Duplicate
 `annotationId` values count once; version-2 copies are preferred, and old-only
 negative-condition responses are converted automatically.
@@ -145,11 +144,3 @@ negative-condition responses are converted automatically.
 
 `datapoint_fields.py` builds the `objects`/`conditions` fields from GenEval
 metadata and is imported by the upload script above — it isn't run directly.
-
-## Older scripts
-
-`samples/graveyard/` holds superseded or one-off scripts and historical data
-(the original flux2-only
-importer, the hand-written demo datapoint, and the structured-fields
-migration) kept locally for reference. It is not part of the normal workflow
-and is not uploaded to GitHub.
