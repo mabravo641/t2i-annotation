@@ -88,6 +88,27 @@ body {
   line-height: 1.4;
 }
 
+.shortcuts-hint {
+  margin: -0.25rem 0 1rem;
+  color: #475467;
+  font-size: 0.85rem;
+}
+
+.shortcuts-hint kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  text-align: center;
+  border: 1px solid #98a2b3;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  background: #fff;
+  color: #101828;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .annotation-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
