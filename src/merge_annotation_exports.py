@@ -16,16 +16,16 @@ from datapoint_fields import build_conditions
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OMAR_ROOT = REPO_ROOT / "omar_data"
 DEFAULT_ANNOTATION_FILES = [
-    REPO_ROOT / "t2i-annotation/src/annotations_1/annotations.jsonl",
-    REPO_ROOT / "t2i-annotation/src/annotations/annotations.jsonl",
-    REPO_ROOT / "t2i-annotation/src/annotations/pre_positive_question_migration_2026-08-24/annotations.jsonl",
-    REPO_ROOT / "t2i-annotation/src/graveyard/annotations/annotations.jsonl",
+    REPO_ROOT / "t2i-annotation/samples/graveyard/annotations_1/annotations.jsonl",
+    REPO_ROOT / "t2i-annotation/samples/annotations/annotations.jsonl",
+    REPO_ROOT / "t2i-annotation/samples/annotations/pre_positive_question_migration_2026-08-24/annotations.jsonl",
+    REPO_ROOT / "t2i-annotation/samples/graveyard/annotations/annotations.jsonl",
 ]
 DEFAULT_MANIFEST_FILES = [
-    REPO_ROOT / "t2i-annotation/src/manifests/upload_manifest.jsonl",
-    REPO_ROOT / "t2i-annotation/src/graveyard/manifests/upload_manifest.jsonl",
+    REPO_ROOT / "t2i-annotation/samples/manifests/upload_manifest.jsonl",
+    REPO_ROOT / "t2i-annotation/samples/graveyard/manifests/upload_manifest.jsonl",
 ]
-DEFAULT_OUT_DIR = REPO_ROOT / "t2i-annotation/src/annotations_merged"
+DEFAULT_OUT_DIR = REPO_ROOT / "t2i-annotation/samples/annotations_merged"
 VERSION = 2
 
 

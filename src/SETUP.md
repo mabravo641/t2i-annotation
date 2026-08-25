@@ -64,7 +64,7 @@ workflow. Newly uploaded datapoints start with zero reserved slots.
 See the top of `select_and_upload_datapoints.py` for all options
 (`--models`, `--categories`, `--settings`, `--balance-by`, ...). Every upload
 is logged as one complete JSON object per line in
-`manifests/upload_manifest.jsonl`. After every upload, this file is rewritten
+`samples/manifests/upload_manifest.jsonl`. After every upload, this file is rewritten
 from the live Firestore `datapoints` collection, so its document IDs and row
 count match what is currently uploaded rather than retaining deleted history.
 
@@ -74,10 +74,25 @@ count match what is currently uploaded rather than retaining deleted history.
 .venv/bin/python t2i-annotation/src/download_annotations.py
 ```
 
-Writes `annotations/annotations.jsonl` (full fidelity) and
-`annotations/annotations.csv` (one row per response), joined with each
+Writes `samples/annotations/annotations.jsonl` (full fidelity) and
+`samples/annotations/annotations.csv` (one row per response), joined with each
 datapoint's prompt/model/category and each annotator's nickname/email.
 Overwrites on every run to reflect the current state of Firestore.
+
+## Download Firebase images
+
+Create a portable local backup of every image referenced by the Firestore
+`datapoints` collection:
+
+```bash
+.venv/bin/python t2i-annotation/src/download_firebase_images.py
+```
+
+Images are saved under `samples/images/`, with one file per datapoint and an
+`images_manifest.jsonl` mapping each local file to its datapoint and Firebase
+Storage path. Existing images are skipped so an interrupted download can be
+resumed. Pass `--overwrite` to download all images again. The image backup and
+all other contents under `samples/` listed below are ignored by Git.
 
 ## Verify or reset annotation data
 
@@ -119,9 +134,10 @@ Merge overlapping old/new local exports without double-counting annotations:
 .venv/bin/python t2i-annotation/src/merge_annotation_exports.py
 ```
 
-The default inputs cover `annotations_1`, `annotations`, the pre-migration
-backup, and `graveyard/annotations`, plus both manifest locations. Output goes
-to `src/annotations_merged/` as deduplicated version-2 JSONL. Duplicate
+The default inputs cover `samples/graveyard/annotations_1`,
+`samples/annotations`, the pre-migration backup, and
+`samples/graveyard/annotations`, plus both manifest locations. Output goes to
+`samples/annotations_merged/` as deduplicated version-2 JSONL. Duplicate
 `annotationId` values count once; version-2 copies are preferred, and old-only
 negative-condition responses are converted automatically.
 
@@ -132,6 +148,8 @@ metadata and is imported by the upload script above — it isn't run directly.
 
 ## Older scripts
 
-`graveyard/` holds superseded or one-off scripts (the original flux2-only
+`samples/graveyard/` holds superseded or one-off scripts and historical data
+(the original flux2-only
 importer, the hand-written demo datapoint, and the structured-fields
-migration) kept for reference. Not part of the normal workflow.
+migration) kept locally for reference. It is not part of the normal workflow
+and is not uploaded to GitHub.

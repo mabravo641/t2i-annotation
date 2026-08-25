@@ -5,7 +5,7 @@ model, category, pos/neg setting, automatic-evaluator verdict) and its
 `annotators` document (nickname, email) so the export is self-contained and
 readable without going back to Firestore.
 
-Writes two files to t2i-annotation/src/annotations/ (default), overwriting
+Writes two files to t2i-annotation/samples/annotations/ (default), overwriting
 them each run so they always reflect the current contents of Firestore:
 
 - annotations.jsonl : one JSON object per annotation, full fidelity
@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICE_ACCOUNT_FILE = (
     REPO_ROOT / "firebase" / "neg-gen-firebase-adminsdk-fbsvc-caafa15513.json"
 )
-DEFAULT_OUT_DIR = Path(__file__).resolve().parent / "annotations"
+DEFAULT_OUT_DIR = Path(__file__).resolve().parents[1] / "samples" / "annotations"
 
 CSV_FIELDS = [
     "annotationId", "annotatorId", "annotatorNickname", "annotatorEmail",

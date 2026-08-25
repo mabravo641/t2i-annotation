@@ -18,7 +18,7 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
 - Skips any image already present in Firestore `datapoints` (by deterministic
   document ID), so the script is safe to re-run as more evaluation results land.
 - Records every upload to a line-oriented JSONL manifest
-  (`t2i-annotation/src/manifests/upload_manifest.jsonl`) for easy review, in
+  (`t2i-annotation/samples/manifests/upload_manifest.jsonl`) for easy review, in
   addition to the fields already stored on the Firestore document.
 
 `omar_data` is read-only for this script; it is never modified.
@@ -63,7 +63,7 @@ STORAGE_BUCKET = "neg-gen.firebasestorage.app"
 SERVICE_ACCOUNT_FILE = (
     REPO_ROOT / "firebase" / "neg-gen-firebase-adminsdk-fbsvc-caafa15513.json"
 )
-MANIFEST_DIR = Path(__file__).resolve().parent / "manifests"
+MANIFEST_DIR = Path(__file__).resolve().parents[1] / "samples" / "manifests"
 MANIFEST_PATH = MANIFEST_DIR / "upload_manifest.jsonl"
 
 ALL_CATEGORIES = [

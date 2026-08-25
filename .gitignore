@@ -14,8 +14,11 @@ venv/
 *firebase-adminsdk*.json
 
 # Downloaded annotation exports contain annotator emails; keep them local.
-src/annotations/
-src/annotations_1/
-src/annotations_merged/
-src/manifests/
-src/graveyard/
+samples/annotations/
+samples/annotations_1/
+samples/annotations_merged/
+samples/manifests/
+samples/graveyard/
+
+# Portable backups of images stored in Firebase Storage are local-only.
+samples/images/
