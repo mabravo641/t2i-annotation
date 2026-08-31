@@ -2,7 +2,7 @@
 
 Supersedes `add_random_flux2_datapoints.py`. Differences:
 
-- Works across every model under `omar_data/` (flux2, flux2-4bit, qwen, sd35, ...),
+- Works across every model under `geneval_data/` (flux2, flux2-4bit, qwen, sd35, ...),
   not just flux2, so the same prompt can be uploaded again with a different
   model's generated image.
 - Reads each model's automatic-evaluator `results/<category>.jsonl` (written by
@@ -25,7 +25,7 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
   (`t2i-annotation/samples/manifests/upload_manifest.jsonl`) for easy review, in
   addition to the fields already stored on the Firestore document.
 
-`omar_data` is read-only for this script; it is never modified.
+`geneval_data` is read-only for this script; it is never modified.
 
 Usage examples
 --------------
@@ -61,7 +61,7 @@ from firebase_admin import credentials, firestore, storage
 from datapoint_fields import build_conditions, build_objects
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OMAR_ROOT = REPO_ROOT / "omar_data"
+OMAR_ROOT = REPO_ROOT / "geneval_data"
 STORAGE_PREFIX = "annotation-images"
 STORAGE_BUCKET = "neg-gen.firebasestorage.app"
 SERVICE_ACCOUNT_FILE = (
@@ -82,7 +82,7 @@ BALANCE_DIMENSIONS = ["model", "category", "setting", "correct"]
 
 
 def discover_models():
-    """Any omar_data subdirectory that has generated images under a known category.
+    """Any geneval_data subdirectory that has generated images under a known category.
 
     Excludes sibling directories like `prompts/` and `plots/` that happen to
     also contain pos<P>_neg<N>-named subdirectories but hold no images.
@@ -128,7 +128,7 @@ def load_results(model, setting, category):
 
 
 def sanitize_ref(relative_path):
-    """omar_data-relative path -> flat id, e.g. flux2-pos1_neg1-neg_attr_color-00002-samples-00000"""
+    """geneval_data-relative path -> flat id, e.g. flux2-pos1_neg1-neg_attr_color-00002-samples-00000"""
     return relative_path.replace("/", "-").rsplit(".", 1)[0]
 
 
@@ -518,7 +518,7 @@ def parse_args():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--models", nargs="+", default=None,
-                         help="Model keys under omar_data/ (default: all discovered)")
+                         help="Model keys under geneval_data/ (default: all discovered)")
     parser.add_argument("--categories", nargs="+", default=ALL_CATEGORIES,
                          choices=ALL_CATEGORIES)
     parser.add_argument("--settings", nargs="+", default=None,

@@ -1,7 +1,7 @@
-"""Reconstruct omar_data evaluator-tree folders for annotated datapoints that
+"""Reconstruct geneval_data evaluator-tree folders for annotated datapoints that
 don't have one yet.
 
-compare_human_metrics.py needs omar_data/<model>/<posNeg>/<tag>/<idx>/metadata.jsonl
+compare_human_metrics.py needs geneval_data/<model>/<posNeg>/<tag>/<idx>/metadata.jsonl
 to build each datapoint's object/condition list (via datapoint_fields.py). Newer
 datapoints downloaded through download_firebase_images.py never got one, so they
 get silently skipped ("no metadata found") even though their annotations are real.
@@ -11,7 +11,7 @@ Nothing is actually missing, just not yet reconstructed:
     neggeneval/prompts/neg/<posNeg>/<tag>.jsonl -- verified byte-for-byte
     equivalent (minus num_pos/num_neg, which the existing reconstructed copies
     never kept either) to the metadata.jsonl of an existing datapoint.
-  - The image never needs downloading again: every existing omar_data image is
+  - The image never needs downloading again: every existing geneval_data image is
     itself a symlink back to t2i-annotation/samples/images/<docId>.png, which we
     already have for every annotated datapoint.
 
@@ -28,7 +28,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ANNOTATION_ROOT = Path(__file__).resolve().parents[1]
 PROMPTS_ROOT = REPO_ROOT / "neggeneval" / "prompts" / "neg"
-OMAR_ROOT = REPO_ROOT / "omar_data"
+OMAR_ROOT = REPO_ROOT / "geneval_data"
 IMAGES_ROOT = ANNOTATION_ROOT / "samples" / "images"
 DEFAULT_ANNOTATIONS = ANNOTATION_ROOT / "samples/annotations/annotations.jsonl"
 

@@ -1,17 +1,17 @@
 """Audit every uploaded datapoint for prompt/image/question integrity.
 
 Checks each Firestore `datapoints` document (that has a `sourcePath`, i.e. was
-generated from omar_data metadata) against the source of truth on disk:
+generated from geneval_data metadata) against the source of truth on disk:
 
 - IMAGE MISMATCH: the bytes actually stored in Firebase Storage differ from
-  the source file at `sourcePath` in omar_data (would indicate an upload bug
+  the source file at `sourcePath` in geneval_data (would indicate an upload bug
   or an overwritten blob). Skipped with --skip-image-check for a faster run,
   since it downloads every image.
 - STALE FIELDS: the stored `prompt`/`objects`/`conditions` no longer match
   what `datapoint_fields.build_objects`/`build_conditions` produce fresh from
   the source metadata.jsonl (would indicate a code change that should have
   been backfilled, à la backfill_condition_structure.py).
-- MISSING SOURCE: sourcePath no longer resolves to a file in omar_data.
+- MISSING SOURCE: sourcePath no longer resolves to a file in geneval_data.
 
 Also flags, for a human to look at (not a data-integrity bug, but worth eyes on):
 
@@ -23,7 +23,7 @@ Also flags, for a human to look at (not a data-integrity bug, but worth eyes on)
   the image showed a completely different, coherent scene (unrelated to the
   prompt) repeated with variation across all 4 samples of that prompt index -
   consistent with either a severe model failure on long/complex prompts or an
-  upstream indexing issue in the omar_data generation pipeline (outside this
+  upstream indexing issue in the geneval_data generation pipeline (outside this
   repo). Looked up from `autoCorrect`/`autoReason` if the datapoint has them,
   otherwise read live from the model's results/<category>.jsonl.
 
@@ -45,7 +45,7 @@ from datapoint_fields import build_conditions, build_objects
 from select_and_upload_datapoints import load_results
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OMAR_ROOT = REPO_ROOT / "omar_data"
+OMAR_ROOT = REPO_ROOT / "geneval_data"
 STORAGE_PREFIX = "annotation-images"
 STORAGE_BUCKET = "neg-gen.firebasestorage.app"
 SERVICE_ACCOUNT_FILE = (
@@ -157,7 +157,7 @@ def main():
                 remote_hash = hashlib.sha256(blob.download_as_bytes()).hexdigest()
                 local_hash = sha256_of_file(local_path)
                 if remote_hash != local_hash:
-                    image_mismatches.append((doc.id, "uploaded image differs from omar_data source"))
+                    image_mismatches.append((doc.id, "uploaded image differs from geneval_data source"))
 
         metadata = load_metadata(local_path)
         if metadata is not None:

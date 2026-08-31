@@ -14,7 +14,7 @@ from pathlib import Path
 from datapoint_fields import build_conditions
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OMAR_ROOT = REPO_ROOT / "omar_data"
+OMAR_ROOT = REPO_ROOT / "geneval_data"
 DEFAULT_ANNOTATION_FILES = [
     REPO_ROOT / "t2i-annotation/samples/annotations/annotations.jsonl",
     REPO_ROOT / "t2i-annotation/samples/annotations/pre_positive_question_migration_2026-08-24/annotations.jsonl",

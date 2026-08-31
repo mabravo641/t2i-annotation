@@ -20,7 +20,7 @@ from firebase_admin import credentials, firestore
 from datapoint_fields import build_conditions
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OMAR_ROOT = REPO_ROOT / "omar_data"
+OMAR_ROOT = REPO_ROOT / "geneval_data"
 SERVICE_ACCOUNT_FILE = (
     REPO_ROOT / "firebase" / "neg-gen-firebase-adminsdk-fbsvc-caafa15513.json"
 )

@@ -3,7 +3,7 @@
 Images are written to ``t2i-annotation/samples/images/`` by default, one file
 per Firestore datapoint ID. A JSONL manifest in the same directory records the
 Firebase Storage path and local filename, making the backup portable without
-depending on the original ``omar_data`` tree.
+depending on the original ``geneval_data`` tree.
 
 Existing files are skipped by default so interrupted downloads can be resumed.
 Use ``--overwrite`` to download every image again.
