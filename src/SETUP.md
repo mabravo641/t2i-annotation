@@ -1,23 +1,9 @@
 # Annotation data scripts
 
-Run everything from the repo root with the shared virtual environment:
+Run from repo root: `.venv/bin/python t2i-annotation/src/<script>.py`
+Needs Firebase Admin SDK credentials at `firebase/neg-gen-firebase-adminsdk-fbsvc-caafa15513.json` (outside this repo, never commit it).
 
-```bash
-.venv/bin/python t2i-annotation/src/<script>.py
-```
-
-All scripts need the Firebase Admin SDK credentials at
-`firebase/neg-gen-firebase-adminsdk-fbsvc-caafa15513.json` (outside this repo;
-never commit it).
-
-## Upload datapoints for annotation
-
-Preview a balanced batch first, then upload for real. The default paired mode
-selects prompt groups balanced across category and pos/neg setting, with one
-image for every requested model. Image selection also balances each model's
-automatic-evaluator correctness. Existing uploads count as fixed group members;
-the script adds only missing models for those prompts and never uploads the same
-source image twice.
+## Upload datapoints
 
 ```bash
 .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
@@ -26,121 +12,66 @@ source image twice.
   --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42
 ```
 
-`--num-prompts 40` means 40 matched prompt groups, not 40 images. With four
-models that is 160 total datapoints before crediting images already uploaded.
-All feasible existing prompt groups are completed first, even when there are
-more than the requested number. Use an explicit `--models` list: including a
-partially generated/unevaluated model restricts selection to prompts available
-for that model (or requires `--include-unknown-correctness`).
+`--num-prompts N` = N prompt groups (one image per requested model each), not N images. Existing prompt groups are completed first (missing models only, never re-uploads a source image); new prompts fill the least-represented category/setup buckets. `--models` restricts selection to prompts available for that model (or pass `--include-unknown-correctness`). `--unpaired --num-total N` selects images independently instead (legacy mode). All options: top of `select_and_upload_datapoints.py`.
 
-Existing prompt groups are fixed inputs to balancing. When `--num-prompts` is
-larger than their count, new prompts preferentially fill the least-represented
-category and pos/neg setup buckets. Historical excesses cannot be reduced
-without removing already uploaded datapoints, so the result is the closest
-attainable marginal balance rather than necessarily equal counts.
+Every upload is logged to `samples/manifests/upload_manifest.jsonl`, rewritten from live Firestore after each run.
 
-Use `--unpaired --num-total N` only to reproduce the older behavior where each
-image is selected independently. Paired uploads receive a stable
-`promptGroupId` (`<setting>-<category>-<idx>`) for later grouped analysis or a
-ranking interface.
+## Initialize the 3-annotator cap
 
-## Initialize the three-annotator cap
-
-Assignment creation reserves a slot in a Firestore transaction, enforcing the
-`targetAnnotationsPerDatapoint` cap even when annotators request work at the
-same time. Before deploying that website code, initialize existing datapoints:
+Run once before deploying assignment code, so existing datapoints get their reserved-slot counters:
 
 ```bash
-.venv/bin/python t2i-annotation/src/backfill_assignment_slots.py
+.venv/bin/python t2i-annotation/src/backfill_assignment_slots.py           # audit (dry run)
 .venv/bin/python t2i-annotation/src/backfill_assignment_slots.py --apply
 ```
 
-The first command is an audit-only dry run. Review any `OVER TARGET` or orphan
-warnings before applying. Assigned slots remain reserved if an annotator walks
-away; this preserves the strict cap but may require an administrator to cancel
-stale assignments and decrement the corresponding counter in a future cleanup
-workflow. Newly uploaded datapoints start with zero reserved slots.
+Review `OVER TARGET`/orphan warnings before applying. Slots stay reserved if an annotator abandons a datapoint — needs manual cleanup later. New datapoints start with zero reserved slots.
 
-See the top of `select_and_upload_datapoints.py` for all options
-(`--models`, `--categories`, `--settings`, `--balance-by`, ...). Every upload
-is logged as one complete JSON object per line in
-`samples/manifests/upload_manifest.jsonl`. After every upload, this file is rewritten
-from the live Firestore `datapoints` collection, so its document IDs and row
-count match what is currently uploaded rather than retaining deleted history.
-
-## Download submitted annotations
+## Download annotations
 
 ```bash
 .venv/bin/python t2i-annotation/src/download_annotations.py
 ```
 
-Writes `samples/annotations/annotations.jsonl` (full fidelity) and
-`samples/annotations/annotations.csv` (one row per response), joined with each
-datapoint's prompt/model/category and each annotator's nickname/email.
-Overwrites on every run to reflect the current state of Firestore.
+Writes `samples/annotations/annotations.jsonl` (full fidelity) + `.csv` (one row per response), joined with each datapoint's prompt/model/category and annotator nickname/email. Overwrites every run.
 
-## Download Firebase images
-
-Create a portable local backup of every image referenced by the Firestore
-`datapoints` collection:
+## Download images
 
 ```bash
-.venv/bin/python t2i-annotation/src/download_firebase_images.py
+.venv/bin/python t2i-annotation/src/download_firebase_images.py   # --overwrite to redownload all
 ```
 
-Images are saved under `samples/images/`, with one file per datapoint and an
-`images_manifest.jsonl` mapping each local file to its datapoint and Firebase
-Storage path. Existing images are skipped so an interrupted download can be
-resumed. Pass `--overwrite` to download all images again. The image backup and
-all other contents under `samples/` listed below are ignored by Git.
+Saves to `samples/images/` + `images_manifest.jsonl` (local file ↔ Firebase Storage path). Skips existing files, so an interrupted download resumes. `samples/` is gitignored.
 
-## Verify or reset annotation data
-
-Audit Firestore fields and source-image integrity (the first form is faster):
+## Verify / reset
 
 ```bash
-.venv/bin/python t2i-annotation/src/verify_datapoints.py --skip-image-check
-.venv/bin/python t2i-annotation/src/verify_datapoints.py
-```
+.venv/bin/python t2i-annotation/src/verify_datapoints.py --skip-image-check   # faster
+.venv/bin/python t2i-annotation/src/verify_datapoints.py                     # + image integrity
 
-Preview a test-data reset without changing Firebase:
-
-```bash
 .venv/bin/python t2i-annotation/src/reset_test_data.py --dry-run
+.venv/bin/python t2i-annotation/src/reset_test_data.py --yes
 ```
 
-`reset_test_data.py --yes` permanently deletes all datapoints, annotations,
-assignments, and uploaded annotation images. It deliberately preserves
-annotator identities. Use it only when starting a new annotation round.
+`reset_test_data.py --yes` permanently deletes all datapoints/annotations/assignments/uploaded images (keeps annotator identities). Only for starting a fresh annotation round.
 
-## Migrate old negated annotation questions
+## Migrate old negation-question format
 
-Version 2 asks annotators only about positive visual predicates and stores
-negation internally as `expected: false`. Audit and migrate older datapoints and
-answers with:
+Version 2 asks annotators only positive predicates, stores negation as `expected: false`.
 
 ```bash
-.venv/bin/python t2i-annotation/src/migrate_positive_condition_questions.py
+.venv/bin/python t2i-annotation/src/migrate_positive_condition_questions.py           # audit
 .venv/bin/python t2i-annotation/src/migrate_positive_condition_questions.py --apply
 ```
 
-For negative conditions, the migration inverts the historical boolean answer
-so its meaning remains unchanged (old “Yes, it is not wooden” becomes new “No,
-it is wooden”). Version markers make repeated runs safe.
-
-Merge overlapping old/new local exports without double-counting annotations:
+Inverts the historical boolean for negative conditions so its meaning is preserved (old "Yes, not wooden" → new "No, it is wooden"). Version-marked, safe to rerun.
 
 ```bash
 .venv/bin/python t2i-annotation/src/merge_annotation_exports.py
 ```
 
-The default inputs cover `samples/annotations`, its pre-migration backup, and
-the current upload manifest. Output goes to
-`samples/annotations_merged/` as deduplicated version-2 JSONL. Duplicate
-`annotationId` values count once; version-2 copies are preferred, and old-only
-negative-condition responses are converted automatically.
+Merges `samples/annotations` + its pre-migration backup + the current upload manifest into deduplicated version-2 JSONL at `samples/annotations_merged/`. Duplicate `annotationId`s count once; v2 copies preferred.
 
 ## Shared logic
 
-`datapoint_fields.py` builds the `objects`/`conditions` fields from GenEval
-metadata and is imported by the upload script above — it isn't run directly.
+`datapoint_fields.py` builds `objects`/`conditions` from GenEval metadata; imported by the upload script above, not run directly.

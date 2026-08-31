@@ -293,13 +293,17 @@ def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
         existing_by_prompt[prompt_key(item)][item["model"]].append(item)
         correctness_counts[item["model"]][item["correct"]] += 1
 
+    def missing_models(key):
+        return [model for model in models
+                if not (existing_by_prompt[key].get(model) or pool[key].get(model))]
+
     def is_feasible(key):
-        return all(existing_by_prompt[key].get(model) or pool[key].get(model)
-                   for model in models)
+        return not missing_models(key)
 
     existing_keys = set(existing_by_prompt)
     mandatory = sorted(key for key in existing_keys if is_feasible(key))
     unresolved = sorted(key for key in existing_keys if not is_feasible(key))
+    unresolved_missing = {key: missing_models(key) for key in unresolved}
 
     # --num-prompts is the desired total number of prompt groups. Completing all
     # feasible pre-existing groups is a stronger invariant and may exceed it.
@@ -358,7 +362,7 @@ def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
             "added_models": added_models,
         })
 
-    return selected, bundle_rows, unresolved, []
+    return selected, bundle_rows, unresolved, [], unresolved_missing
 
 
 def print_summary(label, items, dims):
@@ -483,7 +487,7 @@ def main():
         requested = args.num_total
     else:
         requested = args.num_prompts if args.num_prompts is not None else args.num_total
-        selected, bundle_rows, unresolved, exhausted_strata = select_paired_by_prompt(
+        selected, bundle_rows, unresolved, exhausted_strata, unresolved_missing = select_paired_by_prompt(
             candidates, existing, args.models, requested, rng
         )
         print(f"\nPaired selection: {len(bundle_rows)} prompt groups, "
@@ -494,7 +498,10 @@ def main():
         if unresolved:
             print(f"\nWarning: {len(unresolved)} existing prompt groups cannot yet "
                   "be completed for every requested model because images/results "
-                  f"are unavailable: {unresolved}")
+                  "are unavailable:")
+            for key in unresolved:
+                setting, category, idx = key
+                print(f"  {setting}/{category}/{idx}: missing={unresolved_missing[key]}")
         print_summary(
             "Selected prompt groups", bundle_rows, ["category", "setting"]
         )

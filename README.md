@@ -9,6 +9,7 @@ Static NegGenEval annotation site for GitHub Pages.
   Firebase Web configuration
 - `src/` — Python scripts for uploading datapoints and downloading
   annotations; see `src/SETUP.md`
+- `CONTEXT.md` — data model, question generation, and design constraints
 
 ## Firebase setup
 1. Create a Firestore project.
