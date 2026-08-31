@@ -12,7 +12,7 @@ Needs Firebase Admin SDK credentials at `firebase/neg-gen-firebase-adminsdk-fbsv
   --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42
 ```
 
-`--num-prompts N` = N prompt groups (one image per requested model each), not N images. Existing prompt groups are completed first (missing models only, never re-uploads a source image); new prompts fill the least-represented category/setup buckets. `--models` restricts selection to prompts available for that model (or pass `--include-unknown-correctness`). `--unpaired --num-total N` selects images independently instead (legacy mode). All options: top of `select_and_upload_datapoints.py`.
+`--num-prompts N` = N prompt groups (one image per requested model each), not N images. Existing prompt groups are completed first (missing models only, never re-uploads a source image); new prompts balance categories evenly but weight settings 1:2:3 by negation count (`pos*_neg0`:`pos*_neg1`:`pos*_neg2`) — NegGenEval is a negation benchmark, so the no-negation control is deliberately under-sampled. `--models` restricts selection to prompts available for that model (or pass `--include-unknown-correctness`). `--unpaired --num-total N` selects images independently instead (legacy mode). All options: top of `select_and_upload_datapoints.py`.
 
 Every upload is logged to `samples/manifests/upload_manifest.jsonl`, rewritten from live Firestore after each run.
 

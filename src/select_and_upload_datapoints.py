@@ -15,6 +15,10 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
   correctness. Existing uploads are treated as fixed bundle members and every
   feasible incomplete existing bundle is completed before new prompts are added.
   New prompts compensate for category/setting deficits in those existing groups.
+  Fresh prompt selection balances categories evenly but weights settings 1:2:3
+  by negation count (`setting_weight`) -- NegGenEval is a negation benchmark,
+  so `pos*_neg0` (the no-negation control) is deliberately under-sampled
+  relative to `pos*_neg1`/`pos*_neg2`.
 - Skips any image already present in Firestore `datapoints` (by deterministic
   document ID), so the script is safe to re-run as more evaluation results land.
 - Records every upload to a line-oriented JSONL manifest
@@ -75,7 +79,6 @@ ALL_CATEGORIES = [
     "neg_rel_proximity",
 ]
 BALANCE_DIMENSIONS = ["model", "category", "setting", "correct"]
-PAIRED_BALANCE_DIMENSIONS = ["category", "setting"]
 
 
 def discover_models():
@@ -244,6 +247,108 @@ def marginally_balanced_sample(candidates, dims, num_total, initial_items, rng):
     return selected
 
 
+def setting_neg_count(setting):
+    """Return the number of negative slots encoded in a `pos<P>_neg<N>` setting."""
+    try:
+        return int(setting.split("_neg", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def setting_weight(setting):
+    """Sampling weight by negation count: 0 negatives -> 1, 1 -> 2, 2 -> 3.
+
+    NegGenEval is a negation benchmark; `pos*_neg0` is the no-negation control,
+    not the thing being studied, so it should be under-represented relative to
+    settings that actually exercise negation understanding -- and settings with
+    two negated slots exercise it more than settings with one.
+    """
+    return setting_neg_count(setting) + 1
+
+
+def weighted_setting_balanced_sample(candidates, num_total, initial_items, rng):
+    """Select fresh prompt groups with category balance and weighted settings.
+
+    Existing prompt groups are fixed history. New prompt groups are chosen from
+    the feasible pool by minimizing the combined deficit against:
+
+    - equal category quotas across the whole batch
+    - 1:2:3 global setting weights for 0/1/2 negative slots (`setting_weight`)
+
+    This keeps the batch balanced in both dimensions while still allowing the
+    available candidate pool to constrain the exact result.
+    """
+    if not candidates or num_total <= 0:
+        return []
+
+    # Quotas must reflect the balance of the FINAL batch (existing/mandatory
+    # groups plus these fresh picks), not just these fresh picks in isolation.
+    # `counts` below starts pre-loaded with `initial_items`, so targets have to
+    # be computed against that same total or any skew already present in the
+    # mandatory groups never gets compensated for.
+    total_target = num_total + len(initial_items)
+
+    categories = sorted({candidate["category"] for candidate in candidates})
+    settings = sorted({candidate["setting"] for candidate in candidates})
+
+    category_targets = {category: total_target / len(categories) for category in categories}
+    setting_weights = {setting: setting_weight(setting) for setting in settings}
+    setting_weight_sum = sum(setting_weights.values())
+    setting_targets = {
+        setting: total_target * setting_weights[setting] / setting_weight_sum
+        for setting in settings
+    }
+
+    def distribute(targets):
+        buckets = {key: int(value) for key, value in targets.items()}
+        remainder = total_target - sum(buckets.values())
+        if remainder <= 0:
+            return buckets
+        order = sorted(
+            targets,
+            key=lambda key: (targets[key] - buckets[key], key),
+            reverse=True,
+        )
+        for key in order[:remainder]:
+            buckets[key] += 1
+        return buckets
+
+    category_quotas = distribute(category_targets)
+    setting_quotas = distribute(setting_targets)
+
+    counts = {
+        "category": Counter(item["category"] for item in initial_items),
+        "setting": Counter(item["setting"] for item in initial_items),
+    }
+
+    remaining = list(candidates)
+    rng.shuffle(remaining)
+
+    selected = []
+    while remaining and len(selected) < num_total:
+        scored = []
+        for item in remaining:
+            cat = item["category"]
+            setting = item["setting"]
+            score = (
+                max(0, counts["category"][cat] - category_quotas[cat]),
+                max(0, counts["setting"][setting] - setting_quotas[setting]),
+                counts["category"][cat] / max(1, category_quotas[cat]),
+                counts["setting"][setting] / max(1, setting_quotas[setting]),
+            )
+            scored.append((score, item))
+
+        best_score = min(score for score, _ in scored)
+        best_indices = [i for i, (score, _) in enumerate(scored) if score == best_score]
+        chosen_index = rng.choice(best_indices)
+        chosen = remaining.pop(chosen_index)
+        selected.append(chosen)
+        counts["category"][chosen["category"]] += 1
+        counts["setting"][chosen["setting"]] += 1
+
+    return selected
+
+
 def prompt_key(item):
     """Stable prompt identity shared by every model's rendering."""
     return item["setting"], item["category"], item["idx"]
@@ -318,9 +423,8 @@ def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
         for key in pool
         if key not in existing_keys and is_feasible(key)
     ]
-    chosen_fresh = marginally_balanced_sample(
+    chosen_fresh = weighted_setting_balanced_sample(
         fresh,
-        PAIRED_BALANCE_DIMENSIONS,
         target - len(selected_keys),
         mandatory_items,
         rng,
@@ -478,6 +582,13 @@ def main():
     print(f"\n{len(candidates)} candidates remain after excluding "
           f"{len(existing_ids)} already-uploaded datapoints.")
 
+    if not args.unpaired:
+        initial_prompt_groups = list({prompt_key(item): item for item in existing}.values())
+        print_summary(
+            "Initial prompt groups (already in Firestore)",
+            initial_prompt_groups, ["category", "setting"],
+        )
+
     if args.unpaired:
         selected, exhausted_strata = stratified_sample(
             candidates, args.balance_by, args.num_total, rng
@@ -503,7 +614,7 @@ def main():
                 setting, category, idx = key
                 print(f"  {setting}/{category}/{idx}: missing={unresolved_missing[key]}")
         print_summary(
-            "Selected prompt groups", bundle_rows, ["category", "setting"]
+            "Final prompt groups (existing + newly selected)", bundle_rows, ["category", "setting"]
         )
     if exhausted_strata:
         print(f"\nNote: {len(exhausted_strata)} of the requested strata ran out of "
