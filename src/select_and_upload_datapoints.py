@@ -15,10 +15,12 @@ Supersedes `add_random_flux2_datapoints.py`. Differences:
   correctness. Existing uploads are treated as fixed bundle members and every
   feasible incomplete existing bundle is completed before new prompts are added.
   New prompts compensate for category/setting deficits in those existing groups.
-  Fresh prompt selection balances categories evenly but weights settings 1:2:3
-  by negation count (`setting_weight`) -- NegGenEval is a negation benchmark,
-  so `pos*_neg0` (the no-negation control) is deliberately under-sampled
-  relative to `pos*_neg1`/`pos*_neg2`.
+  Fresh prompt selection balances categories evenly and weights settings so that
+  every setting with at least one negated slot gets an equal target quota
+  (`setting_weight`) -- NegGenEval is a negation benchmark, so `pos*_neg0` (the
+  no-negation control) is deliberately under-sampled relative to any single
+  negation setting, but `pos*_neg1` and `pos*_neg2` settings are not stacked
+  against each other.
 - Skips any image already present in Firestore `datapoints` (by deterministic
   document ID), so the script is safe to re-run as more evaluation results land.
 - Records every upload to a line-oriented JSONL manifest
@@ -256,24 +258,79 @@ def setting_neg_count(setting):
 
 
 def setting_weight(setting):
-    """Sampling weight by negation count: 0 negatives -> 1, 1 -> 2, 2 -> 3.
+    """Sampling weight: 0 negatives -> 1, any negatives -> 2.
 
     NegGenEval is a negation benchmark; `pos*_neg0` is the no-negation control,
     not the thing being studied, so it should be under-represented relative to
-    settings that actually exercise negation understanding -- and settings with
-    two negated slots exercise it more than settings with one.
+    settings that actually exercise negation understanding. But every setting
+    with at least one negated slot gets the *same* weight, so e.g. `pos0_neg1`,
+    `pos2_neg1`, and `pos1_neg2` end up with equal quotas instead of `neg2`
+    settings being stacked on top of `neg1` settings.
     """
-    return setting_neg_count(setting) + 1
+    return 1 if setting_neg_count(setting) == 0 else 2
 
 
-def weighted_setting_balanced_sample(candidates, num_total, initial_items, rng):
+def distribute(targets, total):
+    """Round fractional `targets` to integers summing exactly to `total`.
+
+    Largest-remainder rounding: floor every target, then hand the leftover
+    units to whichever keys had the biggest fractional part (ties broken by
+    key so results are deterministic).
+    """
+    buckets = {key: int(value) for key, value in targets.items()}
+    remainder = total - sum(buckets.values())
+    if remainder <= 0:
+        return buckets
+    order = sorted(
+        targets,
+        key=lambda key: (targets[key] - buckets[key], key),
+        reverse=True,
+    )
+    for key in order[:remainder]:
+        buckets[key] += 1
+    return buckets
+
+
+def resolve_quotas(keys, total_target, weight_fn, overrides):
+    """Per-key integer quotas summing to `total_target`.
+
+    Keys in `overrides` get that exact count. The remaining keys split
+    whatever's left over proportionally to `weight_fn`, same as before
+    overrides existed. Lets a caller pin a handful of exact target counts
+    (e.g. from a one-off rebalancing plan) while everything else still
+    follows the general policy.
+    """
+    overrides = overrides or {}
+    fixed = {key: overrides[key] for key in keys if key in overrides}
+    free_keys = [key for key in keys if key not in overrides]
+    remaining_target = total_target - sum(fixed.values())
+
+    if not free_keys:
+        return fixed
+
+    weights = {key: weight_fn(key) for key in free_keys}
+    weight_sum = sum(weights.values())
+    targets = {key: remaining_target * weights[key] / weight_sum for key in free_keys}
+    quotas = distribute(targets, remaining_target)
+    quotas.update(fixed)
+    return quotas
+
+
+def weighted_setting_balanced_sample(
+    candidates, num_total, initial_items, rng,
+    category_target_overrides=None, setting_target_overrides=None,
+):
     """Select fresh prompt groups with category balance and weighted settings.
 
     Existing prompt groups are fixed history. New prompt groups are chosen from
     the feasible pool by minimizing the combined deficit against:
 
-    - equal category quotas across the whole batch
-    - 1:2:3 global setting weights for 0/1/2 negative slots (`setting_weight`)
+    - equal category quotas across the whole batch, unless
+      `category_target_overrides` pins specific categories to exact counts
+    - equal global quotas for every setting with at least one negated slot,
+      with the `pos*_neg0` control under-sampled relative to those
+      (`setting_weight`), unless `setting_target_overrides` pins specific
+      settings to exact counts
 
     This keeps the batch balanced in both dimensions while still allowing the
     available candidate pool to constrain the exact result.
@@ -291,30 +348,12 @@ def weighted_setting_balanced_sample(candidates, num_total, initial_items, rng):
     categories = sorted({candidate["category"] for candidate in candidates})
     settings = sorted({candidate["setting"] for candidate in candidates})
 
-    category_targets = {category: total_target / len(categories) for category in categories}
-    setting_weights = {setting: setting_weight(setting) for setting in settings}
-    setting_weight_sum = sum(setting_weights.values())
-    setting_targets = {
-        setting: total_target * setting_weights[setting] / setting_weight_sum
-        for setting in settings
-    }
-
-    def distribute(targets):
-        buckets = {key: int(value) for key, value in targets.items()}
-        remainder = total_target - sum(buckets.values())
-        if remainder <= 0:
-            return buckets
-        order = sorted(
-            targets,
-            key=lambda key: (targets[key] - buckets[key], key),
-            reverse=True,
-        )
-        for key in order[:remainder]:
-            buckets[key] += 1
-        return buckets
-
-    category_quotas = distribute(category_targets)
-    setting_quotas = distribute(setting_targets)
+    category_quotas = resolve_quotas(
+        categories, total_target, lambda _category: 1, category_target_overrides
+    )
+    setting_quotas = resolve_quotas(
+        settings, total_target, setting_weight, setting_target_overrides
+    )
 
     counts = {
         "category": Counter(item["category"] for item in initial_items),
@@ -377,14 +416,18 @@ def existing_record(doc):
     }
 
 
-def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
+def select_paired_by_prompt(
+    candidates, existing, models, num_prompts, rng,
+    category_target_overrides=None, setting_target_overrides=None,
+):
     """Select missing images for prompt-matched, all-model bundles.
 
     Every returned prompt has either an existing or newly selected datapoint for
     each requested model. Existing prompt groups are completed first. New prompt
-    groups are round-robin balanced over category and setting. Within each model,
-    image choice favors the currently underrepresented evaluator-correctness
-    bucket, including existing uploads in those counts.
+    groups are round-robin balanced over category and setting -- or pinned to
+    exact counts via `category_target_overrides`/`setting_target_overrides`.
+    Within each model, image choice favors the currently underrepresented
+    evaluator-correctness bucket, including existing uploads in those counts.
     """
     pool = defaultdict(lambda: defaultdict(list))
     for candidate in candidates:
@@ -428,6 +471,8 @@ def select_paired_by_prompt(candidates, existing, models, num_prompts, rng):
         target - len(selected_keys),
         mandatory_items,
         rng,
+        category_target_overrides=category_target_overrides,
+        setting_target_overrides=setting_target_overrides,
     )
     selected_keys.extend(item["key"] for item in chosen_fresh)
 
@@ -513,6 +558,21 @@ def write_manifest_snapshot(db):
     return len(records)
 
 
+def parse_target_overrides(pairs):
+    """["pos1_neg0=9", "pos2_neg0=7"] -> {"pos1_neg0": 9, "pos2_neg0": 7}."""
+    if not pairs:
+        return None
+    overrides = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not value.isdigit():
+            raise argparse.ArgumentTypeError(
+                f"Expected KEY=COUNT (e.g. pos1_neg0=9), got {pair!r}"
+            )
+        overrides[key] = int(value)
+    return overrides
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -540,11 +600,22 @@ def parse_args():
                               "result yet (their 'correct' bucket is None)")
     parser.add_argument("--seed", type=int, default=None,
                          help="Random seed for reproducible selection")
+    parser.add_argument("--setting-target", nargs="+", default=None, metavar="SETTING=COUNT",
+                         help="Paired mode: pin exact final prompt-group counts for "
+                              "specific settings (e.g. pos1_neg0=9 pos2_neg0=7). "
+                              "Settings not listed still follow --num-prompts and the "
+                              "usual negation-count weighting.")
+    parser.add_argument("--category-target", nargs="+", default=None, metavar="CATEGORY=COUNT",
+                         help="Paired mode: pin exact final prompt-group counts for "
+                              "specific categories. Categories not listed still split "
+                              "the remaining total evenly.")
     parser.add_argument("--dry-run", action="store_true",
                          help="Select and print the batch, but do not upload "
                               "anything to Firebase or write the manifest")
     args = parser.parse_args()
     args.models = args.models or discover_models()
+    args.setting_target = parse_target_overrides(args.setting_target)
+    args.category_target = parse_target_overrides(args.category_target)
     return args
 
 
@@ -599,7 +670,9 @@ def main():
     else:
         requested = args.num_prompts if args.num_prompts is not None else args.num_total
         selected, bundle_rows, unresolved, exhausted_strata, unresolved_missing = select_paired_by_prompt(
-            candidates, existing, args.models, requested, rng
+            candidates, existing, args.models, requested, rng,
+            category_target_overrides=args.category_target,
+            setting_target_overrides=args.setting_target,
         )
         print(f"\nPaired selection: {len(bundle_rows)} prompt groups, "
               f"{len(selected)} new datapoints, {len(args.models)} requested models/group.")

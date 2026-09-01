@@ -17,6 +17,7 @@ venv/
 samples/annotations/
 samples/annotations_1/
 samples/annotations_merged/
+samples/annotations_with_deprecated/
 samples/manifests/
 samples/graveyard/
 samples/metric_evaluation/

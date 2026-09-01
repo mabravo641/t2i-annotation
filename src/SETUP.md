@@ -8,10 +8,12 @@ Needs Firebase Admin SDK credentials at `firebase/neg-gen-firebase-adminsdk-fbsv
 ```bash
 .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
   --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42 --dry-run
+  
 .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
-  --models flux2 flux2-4bit hidream-4bit janus-pro negationclip qwen sd35 zimage --num-prompts 40 --seed 42 --dry-run
-.venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
-  --models flux2 flux2-4bit hidream-4bit janus-pro negationclip qwen sd35 zimage --num-prompts 40 --seed 42 --dry-run
+  --models flux2 flux2-4bit hidream-4bit janus-pro negationclip qwen sd35 zimage \
+  --num-prompts 60 --seed 66 \
+  --setting-target pos0_neg1=9 pos1_neg0=9 pos0_neg2=7 pos1_neg1=7 pos1_neg2=7 pos2_neg0=7 pos2_neg1=7 pos2_neg2=7
+
 .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
   --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42
 ```
