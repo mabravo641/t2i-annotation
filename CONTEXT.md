@@ -62,7 +62,7 @@ Each annotator: internal ID, random nickname (e.g. `quiet-otter-381`), optional 
 
 Assignment uses a Firestore transaction or other atomic mechanism, not client-side counting:
 - Never re-assign a datapoint to an annotator who already completed it.
-- Prefer datapoints with the fewest completed annotations; stop once the target (3) is reached.
+- Prefer datapoints closest to the target (2 completed before 1, before 0/brand-new) — completes partially-annotated items first rather than spreading coverage thin; stop once the target (3) is reached.
 - Support concurrent annotators without over-assignment.
 
 ## Firestore collections

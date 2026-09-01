@@ -77,10 +77,16 @@ export async function getOrCreateAssignment(candidates) {
 
   if (!candidates.length) return null;
 
-  // Randomize within each reservation-count tier while retaining least-covered
-  // first priority. If concurrent clients fill a tier, continue to the next.
+  // Randomize within each reservation-count tier while retaining most-covered
+  // first priority: datapoints closer to the 3-annotator target are assigned
+  // before brand-new (0-annotation) ones, so partially-done items reach a
+  // complete, human-ceiling-eligible set sooner instead of spreading coverage
+  // thin across the full pool. If concurrent clients fill a tier, continue to
+  // the next.
   const pool = [];
-  const counts = [...new Set(candidates.map((candidate) => candidate.reservedCount))].sort();
+  const counts = [...new Set(candidates.map((candidate) => candidate.reservedCount))].sort(
+    (a, b) => b - a
+  );
   for (const count of counts) {
     const tier = candidates.filter((candidate) => candidate.reservedCount === count);
     while (tier.length) {
