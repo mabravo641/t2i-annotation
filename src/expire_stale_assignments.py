@@ -46,6 +46,14 @@ SERVICE_ACCOUNT_FILE = (
 
 DEFAULT_STALE_HOURS = 48
 
+# Why an `assigned` row was left alone, in output terms.
+REASON_TEXT = {
+    "still_fresh": "assigned within the window, annotator may still be working",
+    "assigned_but_annotated": "annotation already submitted, slot genuinely used",
+    "undated": "no assignedAt, age unknown; pass --include-undated to expire",
+    "malformed": "no annotatorId/datapointId",
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -92,35 +100,36 @@ def main():
     print(f"Stale cutoff: assignedAt before {cutoff:%Y-%m-%d %H:%M} UTC\n")
 
     stale = []
-    counts = Counter()
+    by_status = Counter()   # the status field as stored in Firestore
+    skipped = Counter()     # why an `assigned` row was left alone
     for assignment in db.collection("assignments").stream():
         data = assignment.to_dict() or {}
         status = data.get("status")
-        counts[status] += 1
+        by_status[status] += 1
         if status != "assigned":
             continue  # completed and already-expired rows are never touched
 
         annotator_id = data.get("annotatorId")
         datapoint_id = data.get("datapointId")
         if not (annotator_id and datapoint_id):
-            counts["malformed"] += 1
+            skipped["malformed"] += 1
             print(f"  SKIP malformed (no annotator/datapoint): {assignment.id}")
             continue
 
         # Submitted work whose status was never advanced. Expiring this would
         # release a slot that is genuinely used, letting a fourth annotator in.
         if (annotator_id, datapoint_id) in submitted:
-            counts["assigned_but_annotated"] += 1
+            skipped["assigned_but_annotated"] += 1
             print(f"  SKIP has annotation (status stale, work intact): {assignment.id}")
             continue
 
         assigned_at = data.get("assignedAt")
         if assigned_at is None:
             if not args.include_undated:
-                counts["undated"] += 1
+                skipped["undated"] += 1
                 continue
         elif assigned_at > cutoff:
-            counts["still_fresh"] += 1
+            skipped["still_fresh"] += 1
             continue
 
         stale.append((assignment.reference, annotator_id, datapoint_id, assigned_at))
@@ -132,10 +141,19 @@ def main():
     for _ref, _annotator, datapoint_id, _at in stale:
         by_model[datapoint_id.split("-pos")[0]] += 1
 
-    print(f"\nAssignment rows by status: {dict(counts)}")
-    print(f"Stale assignments to expire: {len(stale)}")
+    # Two separate tallies. by_status partitions every assignment row and sums to
+    # the collection size; skipped explains what happened to the `assigned` ones
+    # and is a breakdown *within* that status, not another slice of the total.
+    total = sum(by_status.values())
+    print(f"\nAssignment rows: {total}")
+    for status, n in sorted(by_status.items(), key=lambda kv: -kv[1]):
+        print(f"  {n:5d}  {status}")
+    print(f"\nOf the {by_status.get('assigned', 0)} still `assigned`:")
+    print(f"  {len(stale):5d}  stale -- to expire")
+    for reason, n in sorted(skipped.items(), key=lambda kv: -kv[1]):
+        print(f"  {n:5d}  kept ({REASON_TEXT.get(reason, reason)})")
     for model, n in sorted(by_model.items(), key=lambda kv: -kv[1]):
-        print(f"  {n:5d}  {model}")
+        print(f"         {n:5d} stale on {model}")
 
     if not stale:
         print("\nNothing to release.")
