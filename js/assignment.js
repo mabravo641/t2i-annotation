@@ -77,15 +77,18 @@ export async function getOrCreateAssignment(candidates) {
 
   if (!candidates.length) return null;
 
-  // Randomize within each reservation-count tier while retaining most-covered
-  // first priority: datapoints closer to the 3-annotator target are assigned
-  // before brand-new (0-annotation) ones, so partially-done items reach a
-  // complete, human-ceiling-eligible set sooner instead of spreading coverage
-  // thin across the full pool. If concurrent clients fill a tier, continue to
-  // the next.
+  // Randomize within each reservation-count tier; the tiers themselves are
+  // ordered by APP_CONFIG.assignmentPriority. "least-covered" serves brand-new
+  // (0-annotation) datapoints first, so a batch uploaded after collection began
+  // is not starved behind every older datapoint still short of target -- which
+  // is how blip3o-next and hunyuanimage-distilled ended up with zero
+  // annotations. "most-covered" restores the original behaviour: finish
+  // partially-done items first, reaching a human-ceiling-eligible set sooner.
+  // If concurrent clients fill a tier, continue to the next.
+  const leastCovered = (APP_CONFIG.assignmentPriority || "least-covered") === "least-covered";
   const pool = [];
   const counts = [...new Set(candidates.map((candidate) => candidate.reservedCount))].sort(
-    (a, b) => b - a
+    (a, b) => (leastCovered ? a - b : b - a)
   );
   for (const count of counts) {
     const tier = candidates.filter((candidate) => candidate.reservedCount === count);

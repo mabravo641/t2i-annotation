@@ -9,6 +9,14 @@ export const APP_CONFIG = {
     measurementId: "G-YJLQZ793E6",
   },
   targetAnnotationsPerDatapoint: 3,
+  // Which end of the coverage range to serve first.
+  //   "least-covered" -- 0-annotation datapoints before partially-done ones.
+  //     Maximises how many datapoints (and models) have any human label at all.
+  //   "most-covered"  -- the original: 2 before 1 before 0, so partially-done
+  //     items reach the 3-annotator target sooner. Maximises the number of
+  //     ceiling-eligible datapoints, at the cost of starving newly uploaded
+  //     batches for as long as any older datapoint is still short of target.
+  assignmentPriority: "least-covered",
 };
 
 export const LOCAL_STORAGE_ANNOTATOR_KEY = "neggeneval_annotator_id";
