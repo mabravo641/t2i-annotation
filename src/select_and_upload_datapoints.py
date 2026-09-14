@@ -111,12 +111,21 @@ def load_results(model, setting, category):
 
     Returns an empty dict if the evaluator hasn't produced results yet for this
     model/setting/category combination.
+
+    look for one of the results dir in case results dir is missing {results_rfdetr, results_rfdetr_ct0.5}
     """
     results_path = OMAR_ROOT / model / setting / "results" / f"{category}.jsonl"
     lookup = {}
     if not results_path.is_file():
+        # Try alternative results directories
+        for alt_dir in ["results_rfdetr_ct0.5"]:
+            alt_path = OMAR_ROOT / model / setting / alt_dir / f"{category}.jsonl"
+            if alt_path.is_file():
+                results_path = alt_path
+                break
+    if not results_path.is_file():
         return lookup
-
+    
     with open(results_path) as f:
         for line in f:
             line = line.strip()
@@ -419,6 +428,7 @@ def existing_record(doc):
 def select_paired_by_prompt(
     candidates, existing, models, num_prompts, rng,
     category_target_overrides=None, setting_target_overrides=None,
+    balance_correctness=True,
 ):
     """Select missing images for prompt-matched, all-model bundles.
 
@@ -428,6 +438,11 @@ def select_paired_by_prompt(
     exact counts via `category_target_overrides`/`setting_target_overrides`.
     Within each model, image choice favors the currently underrepresented
     evaluator-correctness bucket, including existing uploads in those counts.
+
+    `balance_correctness=False` drops that last step: the rendering is drawn
+    uniformly from the prompt's images instead, so the batch reflects the model's
+    true accuracy rather than an even True/False split. Category and setting
+    balancing are unaffected -- they never consulted correctness.
     """
     pool = defaultdict(lambda: defaultdict(list))
     for candidate in candidates:
@@ -488,17 +503,23 @@ def select_paired_by_prompt(
             if existing_by_prompt[key].get(model):
                 continue
             options = pool[key][model]
-            by_correct = defaultdict(list)
-            for option in options:
-                by_correct[option["correct"]].append(option)
-            # Choose a correctness bucket least represented for this model, then
-            # one random rendering inside it. This balances True/False (and None
-            # when explicitly enabled) without breaking prompt matching.
-            min_count = min(correctness_counts[model][value] for value in by_correct)
-            values = [value for value in by_correct
-                      if correctness_counts[model][value] == min_count]
-            value = rng.choice(values)
-            choice = rng.choice(by_correct[value])
+            if balance_correctness:
+                by_correct = defaultdict(list)
+                for option in options:
+                    by_correct[option["correct"]].append(option)
+                # Choose a correctness bucket least represented for this model, then
+                # one random rendering inside it. This balances True/False (and None
+                # when explicitly enabled) without breaking prompt matching.
+                min_count = min(correctness_counts[model][value] for value in by_correct)
+                values = [value for value in by_correct
+                          if correctness_counts[model][value] == min_count]
+                value = rng.choice(values)
+                choice = rng.choice(by_correct[value])
+            else:
+                # Uniform over the prompt's renderings: correctness plays no part,
+                # so the batch inherits the model's real correct/incorrect ratio.
+                choice = rng.choice(options)
+                value = choice["correct"]
             choice["prompt_group_id"] = f"{setting}-{category}-{idx}"
             selected.append(choice)
             added_models.append(model)
@@ -595,6 +616,13 @@ def parse_args():
     parser.add_argument("--balance-by", nargs="+", default=BALANCE_DIMENSIONS,
                          choices=BALANCE_DIMENSIONS,
                          help="Dimensions to stratify the sample on (default: all)")
+    parser.add_argument("--no-correctness-balance", action="store_true",
+                        help="Paired mode: do not balance the automatic-correctness "
+                             "buckets when picking each model's rendering. The batch "
+                             "then reflects each model's true accuracy instead of an "
+                             "even True/False split. Category and setting balancing "
+                             "are unaffected. (In --unpaired mode, drop 'correct' from "
+                             "--balance-by instead.)")
     parser.add_argument("--include-unknown-correctness", action="store_true",
                          help="Also consider images with no automatic-evaluator "
                               "result yet (their 'correct' bucket is None)")
@@ -673,6 +701,7 @@ def main():
             candidates, existing, args.models, requested, rng,
             category_target_overrides=args.category_target,
             setting_target_overrides=args.setting_target,
+            balance_correctness=not args.no_correctness_balance,
         )
         print(f"\nPaired selection: {len(bundle_rows)} prompt groups, "
               f"{len(selected)} new datapoints, {len(args.models)} requested models/group.")

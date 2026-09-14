@@ -10,8 +10,15 @@ Needs Firebase Admin SDK credentials at `firebase/neg-gen-firebase-adminsdk-fbsv
   --models flux2 flux2-4bit qwen sd35 --num-prompts 40 --seed 42 --dry-run
   
 .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
-  --models flux2 flux2-4bit hidream-4bit janus-pro negationclip qwen sd35 zimage \
-  --num-prompts 60 --seed 66 \
+  --models flux2 flux2-4bit hidream-4bit janus-pro negationclip qwen sd35 zimage hunyuanimage-distilled blip3o-next\
+  --num-prompts 60 --seed 66  --dry-run \
+  --setting-target pos0_neg1=9 pos1_neg0=9 pos0_neg2=7 pos1_neg1=7 pos1_neg2=7 pos2_neg0=7 pos2_neg1=7 pos2_neg2=7
+``` 
+
+```bash
+/home/mbravo/data/environments/t2i-annotation/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
+  --models flux2 flux2-4bit hidream-4bit janus-pro negationclip qwen sd35 zimage hunyuanimage-distilled blip3o-next\
+  --num-prompts 60 --seed 72 --no-correctness-balance --dry-run \
   --setting-target pos0_neg1=9 pos1_neg0=9 pos0_neg2=7 pos1_neg1=7 pos1_neg2=7 pos2_neg0=7 pos2_neg1=7 pos2_neg2=7
 
 .venv/bin/python t2i-annotation/src/select_and_upload_datapoints.py \
