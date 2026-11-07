@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NegGenEval Annotation</title>
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+      .topbar-actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+      .pending { color: #b54708; font-size: 0.85rem; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <header class="topbar">
+        <h1>NegGenEval Annotation</h1>
+        <div class="annotator-summary">
+          <p id="annotatorName" class="annotator-name"></p>
+          <p id="progressText" class="progress"></p>
+          <p id="pendingText" class="pending" hidden></p>
+          <div class="topbar-actions">
+            <button id="downloadBtn" class="change-email-btn" type="button">Download my answers</button>
+          </div>
+        </div>
+      </header>
+
+      <section id="statusBanner" class="status" aria-live="polite"></section>
+
+      <section id="promptSection" class="card">
+        <h2>Prompt</h2>
+        <p id="promptText" class="prompt-text"></p>
+      </section>
+
+      <p class="shortcuts-hint">
+        Shortcuts:
+        <kbd>1</kbd>/<kbd>Y</kbd> Yes &middot;
+        <kbd>2</kbd>/<kbd>N</kbd> No &middot;
+        <kbd>&#8595;</kbd>/<kbd>J</kbd> Next question &middot;
+        <kbd>&#8593;</kbd>/<kbd>K</kbd> Previous question &middot;
+        <kbd>Enter</kbd> Submit &amp; next
+      </p>
+
+      <section class="annotation-layout">
+        <section id="imageSection" class="card image-card">
+          <img id="generatedImage" alt="Generated image for annotation" />
+        </section>
+
+        <aside class="card question-panel">
+          <section id="objectsSection" class="question-group">
+            <h2>Required objects</h2>
+            <div id="objectQuestions" class="questions"></div>
+          </section>
+
+          <section id="conditionsSection" class="question-group">
+            <h2>Conditions</h2>
+            <p class="section-note">
+              Note: Positions are considered with respect to the viewer.
+            </p>
+            <div id="conditionQuestions" class="questions"></div>
+          </section>
+        </aside>
+      </section>
+
+      <footer class="footer-actions">
+        <button id="submitBtn" disabled>Submit &amp; Next (Enter)</button>
+      </footer>
+    </main>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
